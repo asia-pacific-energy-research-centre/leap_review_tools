@@ -174,6 +174,34 @@ body, gradio-app {
   color: #ffffff;
   font: 800 0.95rem/1 Arial, sans-serif;
 }
+/* The guide launcher is created by the overlay as a floating pill. Moved into
+   the title bar it lines up with the workspace instead of the viewport edge,
+   and stops overlapping the results panel. Two ids beat the overlay's own
+   single-id rule regardless of stylesheet order. */
+#app-hero #leap-guide-launch {
+  position: static !important;
+  right: auto !important;
+  bottom: auto !important;
+  margin-left: auto;
+  padding: 0.28rem 0.75rem !important;
+  border: 1px solid rgba(255, 255, 255, 0.38) !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  color: #eaf1f8 !important;
+  font-size: 0.78rem !important;
+  font-weight: 650 !important;
+  box-shadow: none !important;
+}
+#app-hero #leap-guide-launch:hover {
+  background: rgba(255, 255, 255, 0.14) !important;
+  border-color: rgba(255, 255, 255, 0.65) !important;
+}
+#app-hero #leap-guide-launch span {
+  width: 1.05rem !important;
+  height: 1.05rem !important;
+  border-color: rgba(255, 255, 255, 0.65) !important;
+  font-size: 0.7rem;
+}
 #app-hero .leap-wordmark {
   color: #ffffff;
   font-size: 1.05rem;
@@ -769,8 +797,16 @@ APP_JS = """
   document.addEventListener('click', (event) => {
     if (event.target.closest('.output-card label')) window.setTimeout(syncOutputCards, 0);
   }, true);
+  // The overlay appends its launcher to the page body; the title bar is where
+  // it belongs, and re-running is harmless once it is already there.
+  const placeGuideLaunch = () => {
+    const hero = document.querySelector('#app-hero');
+    const launch = document.querySelector('#leap-guide-launch');
+    if (hero && launch && launch.parentElement !== hero) hero.appendChild(launch);
+  };
   const install = () => {
     relabelUpload();
+    placeGuideLaunch();
     const button = runButtonEl();
     const animation = document.querySelector('#calculator-animation');
     const status = document.querySelector('#run-status textarea, #run-status input');
