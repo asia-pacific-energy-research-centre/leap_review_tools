@@ -68,8 +68,13 @@ def _git_metadata(repository_root: Path) -> dict[str, object]:
         check=True,
         text=True,
     )
+    # Untracked files are ignored deliberately. The closure is copied from an
+    # explicit manifest, so a stray notebook or scratch directory cannot reach
+    # it, and several required data tables are untracked by design and pinned
+    # by checksum instead. Only modifications to tracked files can make the
+    # recorded commit a lie about what was copied.
     status = subprocess.run(
-        ["git", "status", "--short"],
+        ["git", "status", "--short", "--untracked-files=no"],
         cwd=repository_root,
         capture_output=True,
         check=True,
