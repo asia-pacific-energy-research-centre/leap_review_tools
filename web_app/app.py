@@ -184,24 +184,24 @@ body, gradio-app {
   right: auto !important;
   bottom: auto !important;
   margin-left: auto;
-  padding: 0.28rem 0.75rem !important;
-  border: 1px solid rgba(255, 255, 255, 0.38) !important;
+  padding: 0.38rem 0.95rem !important;
+  border: 0 !important;
   border-radius: 999px !important;
-  background: transparent !important;
-  color: #eaf1f8 !important;
-  font-size: 0.78rem !important;
-  font-weight: 650 !important;
-  box-shadow: none !important;
+  background: var(--orange) !important;
+  color: #ffffff !important;
+  font-size: 0.82rem !important;
+  font-weight: 750 !important;
+  letter-spacing: 0.01em;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28) !important;
 }
-#app-hero #leap-guide-launch:hover {
-  background: rgba(255, 255, 255, 0.14) !important;
-  border-color: rgba(255, 255, 255, 0.65) !important;
-}
+#app-hero #leap-guide-launch:hover { background: #f2762f !important; }
+#app-hero #leap-guide-launch:active { background: #d45a20 !important; }
 #app-hero #leap-guide-launch span {
   width: 1.05rem !important;
   height: 1.05rem !important;
-  border-color: rgba(255, 255, 255, 0.65) !important;
-  font-size: 0.7rem;
+  border-color: rgba(255, 255, 255, 0.85) !important;
+  font-size: 0.72rem;
+  font-weight: 800;
 }
 #app-hero .leap-wordmark {
   color: #ffffff;
