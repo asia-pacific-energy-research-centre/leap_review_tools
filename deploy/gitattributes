@@ -2,3 +2,7 @@ runtime/leap_initialisation/data/00APEC_2024_low_with_subtotals.csv filter=lfs d
 runtime/leap_initialisation/data/merged_file_energy_ALL_20251106.csv filter=lfs diff=lfs merge=lfs -text
 runtime/leap_mappings/results/mapping_relationships/esto_results_exact_rows.csv.gz filter=lfs diff=lfs merge=lfs -text
 runtime/leap_mappings/results/mapping_relationships/ninth_results_converted_to_esto.csv.gz filter=lfs diff=lfs merge=lfs -text
+runtime/leap_mappings/config/mapping_issue_exception_sets.xlsx filter=lfs diff=lfs merge=lfs -text
+runtime/leap_mappings/config/outlook_mappings_master.xlsx filter=lfs diff=lfs merge=lfs -text
+web_app/assets/*.png filter=lfs diff=lfs merge=lfs -text
+web_app/assets/**/*.png filter=lfs diff=lfs merge=lfs -text
