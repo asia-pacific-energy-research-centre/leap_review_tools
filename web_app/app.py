@@ -20,6 +20,7 @@ import sys
 import tempfile
 import time
 import zipfile
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -365,6 +366,37 @@ body, gradio-app {
   line-height: 1.45;
 }
 .export-readout .readout-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+/* One row per uploaded file, so a mixed set can be checked at a glance. */
+.upload-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.3rem; }
+.upload-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+  align-items: baseline;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: 4px;
+  background: #ffffff;
+  font-size: 0.8rem;
+}
+.upload-row strong { color: var(--ink); overflow-wrap: anywhere; }
+.upload-row span { color: var(--muted); }
+.upload-row.is-ok { border-left-color: #2f8f5b; }
+.upload-row.is-warn { border-left-color: #e0912f; }
+.upload-row.is-bad { border-left-color: #c0392b; }
+.upload-row.is-bad .upload-error { grid-column: 2 / -1; color: #a8342a; }
+#selection-row { gap: 0.8rem; margin-top: 0.15rem; }
+/* A multi-file upload cannot produce a workbook, so the card says so by
+   fading rather than vanishing: the option is still visible, just plainly
+   out of reach. */
+.output-card.is-unavailable { opacity: 0.45; }
+.output-card.is-unavailable > div:first-child label { cursor: not-allowed; }
+.output-card.is-unavailable .card-note::after {
+  content: " Unavailable for a multi-file upload.";
+  color: #a8342a;
+  font-weight: 600;
+}
 .readout-chip {
   min-width: 116px;
   padding: 0.4rem 0.6rem;
@@ -784,10 +816,16 @@ APP_JS = """
   // Reflect the tick immediately; Gradio's own round trip is far too slow to
   // be the thing that paints a button press.
   const syncOutputCards = () => {
+    // A multi-file upload takes the workbook away; the readout carries the
+    // flag so the card can be faded without another round trip.
+    const readout = document.querySelector('#export-readout .export-readout');
+    const multi = !!(readout && readout.dataset.multi === '1');
     document.querySelectorAll('.output-card').forEach((card) => {
       const box = card.querySelector('input[type="checkbox"]');
       if (box) card.classList.toggle('is-selected', box.checked);
     });
+    const workbookCard = document.querySelector('#workbook-card');
+    if (workbookCard) workbookCard.classList.toggle('is-unavailable', multi);
   };
   document.addEventListener('change', (event) => {
     if (event.target.matches('.output-card input[type="checkbox"]')) syncOutputCards();
@@ -1322,7 +1360,7 @@ def update_runtime_notes(
     )
 
 
-def clear_uploaded_export() -> tuple[object, str, object, object]:
+def clear_uploaded_export() -> tuple[object, str, object, object, object, object]:
     """Drop the loaded export so a different one can be added.
 
     Gradio's own clear control is an unlabelled icon, which is easy to miss;
@@ -1336,6 +1374,8 @@ def clear_uploaded_export() -> tuple[object, str, object, object]:
         EXPORT_PROMPT_HTML,
         gr.Textbox(visible=False, value=""),
         gr.Button(visible=False),
+        gr.Dropdown(choices=[], value=None, visible=False),
+        gr.Dropdown(choices=[], value=None, visible=False),
     )
 
 
@@ -1448,92 +1488,244 @@ def _readout_chip(label: str, value: str) -> str:
     )
 
 
-def _export_readout_html(*, state: str, label: str, body: str) -> str:
+def _export_readout_html(
+    *, state: str, label: str, body: str, multiple: bool = False
+) -> str:
+    # The flag is read by the page script, which dims the workbook card when a
+    # multi-file upload has taken that option away.
+    flag = " data-multi='1'" if multiple else ""
     return (
-        f"<div class='export-readout is-{state}'>"
+        f"<div class='export-readout is-{state}'{flag}>"
         f"<span class='readout-label'>{html.escape(label)}</span>"
         f"{body}</div>"
     )
 
 
+@dataclass(frozen=True)
+class ExportUpload:
+    """One uploaded export, with whatever could be read from it."""
+
+    path: Path
+    economy: str = ""
+    scenario: str = ""
+    years: tuple[int, ...] = ()
+    area_name: str = ""
+    error: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return not self.error
+
+
+def _read_upload(path: Path) -> ExportUpload:
+    """Return what one export declares, or why it cannot be used."""
+    try:
+        identity = infer_balance_export_identity(path)
+        detail = inspect_balance_export_detail(path)
+    except Exception as error:
+        return ExportUpload(path=path, error=str(error))
+    if not detail.has_level2_detail:
+        return ExportUpload(
+            path=path,
+            error=(
+                f"LEAP wrote this as a {detail.detected_level_label} export, which "
+                "flattens the balance into single rows. Export it again with at "
+                "least Level 2 detail."
+            ),
+        )
+    return ExportUpload(
+        path=path,
+        economy=identity.economy,
+        scenario=identity.scenario,
+        years=identity.years,
+        area_name=identity.area_name,
+    )
+
+
+def _uploaded_paths(value: object) -> list[Path]:
+    """Return the uploaded files, whether Gradio gave one or many."""
+    if value is None:
+        return []
+    items = value if isinstance(value, (list, tuple)) else [value]
+    paths = []
+    for item in items:
+        if item is None or str(item).strip() == "":
+            continue
+        raw = getattr(item, "name", item)
+        path = Path(str(raw))
+        if path.is_file():
+            paths.append(path)
+    return paths
+
+
+def read_uploads(value: object) -> list[ExportUpload]:
+    """Return every uploaded export in a stable order."""
+    return [_read_upload(path) for path in sorted(_uploaded_paths(value))]
+
+
+def group_by_economy(uploads: list[ExportUpload]) -> dict[str, list[ExportUpload]]:
+    """Group readable uploads by the economy each one declares."""
+    grouped: dict[str, list[ExportUpload]] = {}
+    for upload in uploads:
+        if upload.ok and upload.economy:
+            grouped.setdefault(upload.economy, []).append(upload)
+    return dict(sorted(grouped.items()))
+
+
+def scenarios_for(uploads: list[ExportUpload], economy: str) -> list[str]:
+    """Return the scenarios available for one economy, in a stable order."""
+    scenarios = {
+        upload.scenario
+        for upload in uploads
+        if upload.ok and upload.economy == economy and upload.scenario
+    }
+    return sorted(scenarios)
+
+
+def _uploads_table(uploads: list[ExportUpload]) -> str:
+    """Return one row per uploaded file, saying what was read from it."""
+    rows = []
+    for upload in uploads:
+        name = html.escape(upload.path.name)
+        if upload.ok:
+            span = (
+                f"{upload.years[0]}–{upload.years[-1]}"
+                if len(upload.years) > 1
+                else (str(upload.years[0]) if upload.years else "")
+            )
+            detail = (
+                f"<span>{html.escape(upload.economy or 'unknown economy')}</span>"
+                f"<span>{html.escape(upload.scenario)}</span>"
+                f"<span>{html.escape(span)}</span>"
+            )
+            state = "ok" if upload.economy else "warn"
+        else:
+            detail = f"<span class='upload-error'>{html.escape(upload.error)}</span>"
+            state = "bad"
+        rows.append(
+            f"<li class='upload-row is-{state}'><strong>{name}</strong>{detail}</li>"
+        )
+    return f"<ul class='upload-list'>{''.join(rows)}</ul>"
+
+
 def inspect_uploaded_export(
     balance_export_workbook: object,
     year: object,
-) -> tuple[str, object, object, object]:
-    """Read the economy, scenario, and years an uploaded export declares.
+) -> tuple[str, object, object, object, object, object, object, object]:
+    """Read what every uploaded export declares and shape the run around it.
 
-    The export already carries this information in its sheet headers, so the
-    user is shown what was found rather than asked to restate it. Only an
-    unrecognisable LEAP area name falls back to asking for the economy.
+    One export behaves as before. Several switch the run to dashboard mode:
+    a workbook is built for a single economy and scenario, so offering it for
+    a mixed upload would only produce a workbook for whichever file happened
+    to be first. The economy and scenario to render are chosen from what was
+    actually provided rather than from a fixed list.
     """
     import gradio as gr
 
     hidden_economy = gr.Textbox(visible=False, value="")
-    if balance_export_workbook is None or str(balance_export_workbook).strip() == "":
+    uploads = read_uploads(balance_export_workbook)
+    if not uploads:
         return (
             EXPORT_PROMPT_HTML,
             hidden_economy,
             gr.Textbox(),
             gr.Button(visible=False),
+            gr.Dropdown(choices=[], value=None, visible=False),
+            gr.Dropdown(choices=[], value=None, visible=False),
+            gr.Checkbox(),
+            gr.Checkbox(),
         )
 
-    try:
-        export_path = _path_from_gradio_file(
-            balance_export_workbook,
-            description="the LEAP Energy Balance export workbook",
-        )
-        identity = infer_balance_export_identity(export_path)
-        detail = inspect_balance_export_detail(export_path)
-    except Exception as error:
+    grouped = group_by_economy(uploads)
+    economies = list(grouped)
+    multiple = len(uploads) > 1
+    readable = [upload for upload in uploads if upload.ok]
+    unnamed = [upload for upload in readable if not upload.economy]
+
+    first_economy = economies[0] if economies else None
+    scenario_choices = scenarios_for(uploads, first_economy) if first_economy else []
+
+    # A workbook covers one economy and one scenario, so a multi-file upload
+    # builds the dashboard instead. The card says so rather than silently
+    # ignoring the choice.
+    workbook_update = gr.Checkbox(value=not multiple, interactive=not multiple)
+    dashboard_update = gr.Checkbox(value=True)
+
+    if not readable:
+        body = _uploads_table(uploads)
         return (
             _export_readout_html(
                 state="error",
-                label="We could not read this export",
-                body=f"<p>{html.escape(str(error))}</p>",
+                label="These exports could not be read",
+                body=body,
+                multiple=multiple,
             ),
             hidden_economy,
             gr.Textbox(),
             gr.Button(visible=True),
+            gr.Dropdown(choices=[], value=None, visible=False),
+            gr.Dropdown(choices=[], value=None, visible=False),
+            workbook_update,
+            dashboard_update,
         )
 
-    # A Level 1 export flattens the balance into single rows, leaving nothing to
-    # compare. Saying so now saves a several-minute run that cannot succeed.
-    if not detail.has_level2_detail:
-        return (
-            _export_readout_html(
-                state="error",
-                label="This export has too little detail",
-                body=(
-                    f"<p>LEAP wrote this as a {html.escape(detail.detected_level_label)} "
-                    "export, which flattens the balance into single rows. Export the "
-                    "Energy Balance again from LEAP with at least Level 2 detail.</p>"
-                ),
-            ),
-            hidden_economy,
-            gr.Textbox(),
-            gr.Button(visible=True),
-        )
-
-    year_span = (
-        f"{identity.years[0]}–{identity.years[-1]}"
-        if len(identity.years) > 1
-        else str(identity.years[0])
-    )
+    all_years = sorted({year for upload in readable for year in upload.years})
     requested = _requested_years(year)
-    unavailable = sorted(set(requested) - set(identity.years))
     year_update = gr.Textbox()
-    if not requested or unavailable:
-        year_update = gr.Textbox(value=str(identity.years[0]))
+    if all_years and (not requested or set(requested) - set(all_years)):
+        year_update = gr.Textbox(value=str(all_years[0]))
 
-    if not identity.economy:
+    if multiple:
+        note = (
+            f"{len(readable)} exports across {len(economies)} "
+            f"{'economy' if len(economies) == 1 else 'economies'}. "
+            "Choose which one to render below. The review workbook covers a "
+            "single export, so it is unavailable for this upload."
+        )
+        state = "ready" if not unnamed else "partial"
+        return (
+            _export_readout_html(
+                state=state,
+                label="Read from your exports",
+                body=_uploads_table(uploads) + f"<p>{html.escape(note)}</p>",
+                multiple=True,
+            ),
+            gr.Textbox(visible=bool(unnamed)),
+            year_update,
+            gr.Button(visible=True),
+            gr.Dropdown(
+                choices=economies,
+                value=first_economy,
+                visible=True,
+                interactive=True,
+            ),
+            gr.Dropdown(
+                choices=scenario_choices,
+                value=scenario_choices[0] if scenario_choices else None,
+                visible=len(scenario_choices) > 1,
+                interactive=True,
+            ),
+            workbook_update,
+            dashboard_update,
+        )
+
+    upload = readable[0]
+    if not upload.ok:
+        pass
+    year_span = (
+        f"{upload.years[0]}–{upload.years[-1]}"
+        if len(upload.years) > 1
+        else str(upload.years[0])
+    )
+    if not upload.economy:
         body = (
             "<div class='readout-chips'>"
-            + _readout_chip("Scenario", identity.scenario)
+            + _readout_chip("Scenario", upload.scenario)
             + _readout_chip("Years in this export", year_span)
             + "</div>"
-            f"<p>The LEAP area is named “{html.escape(identity.area_name)}”, which "
-            "does not match an APEC economy. Enter the economy code below and "
-            "everything else still comes from the export.</p>"
+            f"<p>The LEAP area is named “{html.escape(upload.area_name)}”, "
+            "which does not match an APEC economy. Enter the economy code below "
+            "and everything else still comes from the export.</p>"
         )
         return (
             _export_readout_html(
@@ -1542,22 +1734,46 @@ def inspect_uploaded_export(
             gr.Textbox(visible=True),
             year_update,
             gr.Button(visible=True),
+            gr.Dropdown(choices=[], value=None, visible=False),
+            gr.Dropdown(choices=[], value=None, visible=False),
+            workbook_update,
+            gr.Checkbox(),
         )
 
     body = (
         "<div class='readout-chips'>"
-        + _readout_chip("Economy", identity.economy)
-        + _readout_chip("Scenario", identity.scenario)
+        + _readout_chip("Economy", upload.economy)
+        + _readout_chip("Scenario", upload.scenario)
         + _readout_chip("Years in this export", year_span)
         + "</div>"
-        f"<p>LEAP area “{html.escape(identity.area_name)}”. Choose any review "
-        "year within this range.</p>"
+        f"<p>LEAP area “{html.escape(upload.area_name)}”. Choose any "
+        "review year within this range.</p>"
     )
     return (
         _export_readout_html(state="ready", label="Read from your export", body=body),
         hidden_economy,
         year_update,
         gr.Button(visible=True),
+        gr.Dropdown(choices=[], value=None, visible=False),
+        gr.Dropdown(choices=[], value=None, visible=False),
+        workbook_update,
+        gr.Checkbox(),
+    )
+
+
+def update_scenario_choices(
+    balance_export_workbook: object, economy: object
+) -> object:
+    """Offer only the scenarios present for the economy now selected."""
+    import gradio as gr
+
+    uploads = read_uploads(balance_export_workbook)
+    choices = scenarios_for(uploads, str(economy or ""))
+    return gr.Dropdown(
+        choices=choices,
+        value=choices[0] if choices else None,
+        visible=len(choices) > 1,
+        interactive=True,
     )
 
 
@@ -1577,6 +1793,8 @@ def build_review_from_export(
     year: object,
     economy_override: str,
     balance_export_workbook: object,
+    economy_choice: object = None,
+    scenario_choice: object = None,
     browser_archives: object = None,
     dashboard_min_year: float = DEFAULT_DASHBOARD_MIN_YEAR,
     dashboard_max_year: float = DEFAULT_DASHBOARD_MAX_YEAR,
@@ -1604,23 +1822,64 @@ def build_review_from_export(
         dashboard_min_year_value = int(dashboard_min_year)
         dashboard_max_year_value = int(dashboard_max_year)
 
-        export_path = _path_from_gradio_file(
-            balance_export_workbook,
-            description="the LEAP Energy Balance export workbook",
-        )
-        identity = infer_balance_export_identity(export_path)
-        scenario_value = identity.scenario
-        economy_value = identity.economy or str(economy_override or "").strip()
-        if not economy_value:
+        uploads = read_uploads(balance_export_workbook)
+        if not uploads:
+            raise ValueError("Please upload at least one LEAP Energy Balance export.")
+        unreadable = [upload for upload in uploads if not upload.ok]
+        readable = [upload for upload in uploads if upload.ok]
+        if not readable:
+            raise ValueError(unreadable[0].error)
+
+        override = str(economy_override or "").strip()
+        grouped = group_by_economy(readable)
+        if not grouped and override:
+            # A single unrecognised area name can still be named by hand.
+            grouped = {override: readable}
+        if not grouped:
             raise ValueError(
-                f"The LEAP area in this export is named {identity.area_name!r}, "
-                "which does not match an APEC economy. Enter the economy code "
-                "so the review knows which one to use."
+                f"The LEAP area in {readable[0].path.name!r} is named "
+                f"{readable[0].area_name!r}, which does not match an APEC economy. "
+                "Enter the economy code so the run knows which one to use."
             )
+
+        chosen = str(economy_choice or "").strip()
+        if chosen and chosen in grouped:
+            economy_value = chosen
+        elif len(grouped) == 1:
+            economy_value = next(iter(grouped))
+        else:
+            raise ValueError(
+                "Choose which economy to render: "
+                + ", ".join(sorted(grouped))
+                + "."
+            )
+        economy_uploads = grouped[economy_value]
+
+        # A workbook is built for one economy and scenario. With several files
+        # uploaded the interface offers only the dashboard, and this guard keeps
+        # a direct API call honest about the same limit.
+        if wants_workbook and len(readable) > 1:
+            raise ValueError(
+                "The review workbook covers a single export. Upload one export "
+                "for a workbook, or build the dashboard from this set."
+            )
+
+        scenario_value = economy_uploads[0].scenario
+        wanted_scenario = str(scenario_choice or "").strip()
+        if wanted_scenario:
+            for upload in economy_uploads:
+                if upload.scenario == wanted_scenario:
+                    scenario_value = wanted_scenario
+                    break
+
+        workbook_upload = next(
+            (upload for upload in economy_uploads if upload.scenario == scenario_value),
+            economy_uploads[0],
+        )
         requested_years = _requested_years(year_value) if wants_workbook else []
-        missing_years = sorted(set(requested_years) - set(identity.years))
+        missing_years = sorted(set(requested_years) - set(workbook_upload.years))
         if missing_years:
-            available = f"{identity.years[0]}–{identity.years[-1]}"
+            available = f"{workbook_upload.years[0]}–{workbook_upload.years[-1]}"
             raise ValueError(
                 f"This export has no sheet for {', '.join(str(y) for y in missing_years)}. "
                 f"It covers {available}."
@@ -1628,11 +1887,14 @@ def build_review_from_export(
         esto_path = None
 
         run_root = Path(tempfile.mkdtemp(prefix="leap_balance_review_web_"))
-        local_export = _copy_input(export_path, run_root / "uploads")
         local_esto = _copy_input(esto_path, run_root / "uploads") if esto_path else None
+        # Every economy gets its own export folder, which is the shape the
+        # dashboard resolver expects; it picks the newest file per scenario.
         export_directory = run_root / "exports" / _safe_filename_token(economy_value)
         export_directory.mkdir(parents=True, exist_ok=True)
-        _copy_input(local_export, export_directory)
+        for upload in economy_uploads:
+            _copy_input(upload.path, export_directory)
+        local_export = _copy_input(workbook_upload.path, run_root / "uploads")
         context = _build_context(run_root)
 
         result = None
@@ -1748,15 +2010,24 @@ def build_review_from_export(
         # quoted duration around.
         year_count = len(requested_years) or None
         for group, measured in runtime_seconds.items():
-            if measured is not None:
-                _save_runtime_sample(group, measured, years=year_count)
+            if measured is None:
+                continue
+            # "full run" means both halves; recording a workbook-only or
+            # dashboard-only run against it would understate the real total.
+            if group == "full_run" and not (wants_workbook and wants_dashboard):
+                continue
+            _save_runtime_sample(group, measured, years=year_count)
         summary = {
             "status": "succeeded",
             "source_commit": _source_commit(),
             "requested_outputs": sorted(wanted),
             "economy": economy_value,
-            "economy_source": "leap_area_name" if identity.economy else "user_supplied",
-            "leap_area_name": identity.area_name,
+            "economy_source": (
+                "leap_area_name" if workbook_upload.economy else "user_supplied"
+            ),
+            "leap_area_name": workbook_upload.area_name,
+            "exports_used": [upload.path.name for upload in economy_uploads],
+            "economies_uploaded": sorted(grouped),
             "scenario": scenario_value,
             "years": years_built,
             "dashboard_min_year": dashboard_min_year_value,
@@ -1963,9 +2234,10 @@ def create_app():
                 </div>"""
             )
             balance_export_workbook = gr.File(
-                label="Your LEAP Energy Balance export (required)",
+                label="Your LEAP Energy Balance export(s) (required)",
                 file_types=[".xlsx", ".xlsm"],
                 type="filepath",
+                file_count="multiple",
                 elem_id="balance-upload",
             )
             economy_override = gr.Textbox(
@@ -1980,6 +2252,25 @@ def create_app():
                 value=EXPORT_PROMPT_HTML,
                 elem_id="export-readout",
             )
+            with gr.Row(elem_id="selection-row"):
+                economy_choice = gr.Dropdown(
+                    label="Economy to render",
+                    choices=[],
+                    value=None,
+                    visible=False,
+                    interactive=True,
+                    allow_custom_value=True,
+                    elem_id="economy-choice",
+                )
+                scenario_choice = gr.Dropdown(
+                    label="Scenario",
+                    choices=[],
+                    value=None,
+                    visible=False,
+                    interactive=True,
+                    allow_custom_value=True,
+                    elem_id="scenario-choice",
+                )
             clear_export_button = gr.Button(
                 "Use a different export",
                 size="sm",
@@ -2126,12 +2417,28 @@ def create_app():
                 export_readout,
                 economy_override,
                 clear_export_button,
+                economy_choice,
+                scenario_choice,
             ],
         )
         balance_export_workbook.change(
             fn=inspect_uploaded_export,
             inputs=[balance_export_workbook, year],
-            outputs=[export_readout, economy_override, year, clear_export_button],
+            outputs=[
+                export_readout,
+                economy_override,
+                year,
+                clear_export_button,
+                economy_choice,
+                scenario_choice,
+                want_workbook,
+                want_dashboard,
+            ],
+        )
+        economy_choice.change(
+            fn=update_scenario_choices,
+            inputs=[balance_export_workbook, economy_choice],
+            outputs=scenario_choice,
         )
         # The button is locked for the whole run and released afterwards, so a
         # second press cannot start a competing build while one is in flight.
@@ -2146,6 +2453,8 @@ def create_app():
                 year,
                 economy_override,
                 balance_export_workbook,
+                economy_choice,
+                scenario_choice,
             ],
             outputs=[
                 summary,

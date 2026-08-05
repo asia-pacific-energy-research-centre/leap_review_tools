@@ -30,6 +30,8 @@ def empty_runtime_profile() -> dict[str, Any]:
         "sample_limit": SAMPLE_LIMIT,
         "updated_at": None,
         "source": "huggingface_space",
+        # Free-text provenance for a committed seed; preserved across writes.
+        "note": "",
         "samples_seconds": {group: [] for group in PROCESS_GROUPS},
         # Parallel to samples_seconds: how many review years each run covered,
         # so a per-year cost can be separated from fixed overhead.
