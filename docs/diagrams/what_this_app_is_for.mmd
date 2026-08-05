@@ -1,0 +1,24 @@
+%% Source for web_app/assets/guide/what-this-app-is-for.svg
+%% Render with:  mmdc -i docs/diagrams/what_this_app_is_for.mmd -o web_app/assets/guide/what-this-app-is-for.svg
+flowchart TD
+    A["One or more LEAP<br/>Energy Balance exports"] --> B{"What are you doing?"}
+
+    B -->|"Reviewing results at<br/>any point in modelling"| C["Compare LEAP against<br/>ESTO and the 9th Outlook"]
+    B -->|"Initialising a model<br/>from the baseline seed"| D["Check the balance against<br/>the source data it should match"]
+
+    C --> E["Regular analysis<br/>using the dashboard"]
+    D --> F["Initialisation balance review<br/>using the dashboard"]
+    D --> G["Initialisation balance review<br/>using the workbook"]
+
+    E --- N1["Several exports allowed<br/>dashboard only"]
+    F --- N1
+    G --- N2["One export only"]
+
+    classDef leaf fill:#fff6f1,stroke:#e7672a,stroke-width:2px,color:#173452
+    classDef step fill:#ffffff,stroke:#cbd8e7,color:#173452
+    classDef note fill:#f4f7fb,stroke:#cbd8e7,color:#65788d,font-size:12px
+    classDef decision fill:#eef3f9,stroke:#7d93b1,stroke-width:2px,color:#173452
+    class E,F,G leaf
+    class A,C,D step
+    class B decision
+    class N1,N2 note

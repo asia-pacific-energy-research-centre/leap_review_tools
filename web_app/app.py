@@ -800,7 +800,7 @@ APP_JS = """
   // file still works, it is simply no longer offered as an alternative.
   const UPLOAD_WORDING = [
     ['Drop File Here', ''],
-    ['Click to Upload', 'Choose your LEAP Energy Balance export (.xlsx)'],
+    ['Click to Upload', 'Choose your LEAP Energy Balance export(s) (.xlsx)'],
   ];
   const relabelUpload = () => {
     const zone = document.querySelector('#balance-upload');
@@ -1473,8 +1473,9 @@ def _result_links_html(
 EXPORT_PROMPT_HTML = (
     "<div class='export-readout is-waiting'>"
     "<span class='readout-label'>Waiting for your export</span>"
-    "<p>Add the workbook above and we will read the economy and scenario "
-    "straight out of it.</p>"
+    "<p>Add one workbook above, or several at once, and we will read the "
+    "economy and scenario straight out of each. Several exports build a "
+    "dashboard; a single export can also build the review workbook.</p>"
     "</div>"
 )
 
@@ -2229,8 +2230,10 @@ def create_app():
         with gr.Column(elem_id="upload-card"):
             gr.HTML(
                 """<div class="step-heading"><span class="step-kicker">01 · Run</span>
-                  <strong>Add your export, choose what to build</strong>
-                  <p>The economy and scenario are read from the export.</p>
+                  <strong>Add your export(s), choose what to build</strong>
+                  <p>The economy and scenario are read from each export. Add
+                  several to compare economies or scenarios in one dashboard;
+                  the review workbook needs a single export.</p>
                 </div>"""
             )
             balance_export_workbook = gr.File(
@@ -2310,8 +2313,9 @@ def create_app():
                     )
                     gr.HTML(
                         "<p class='card-note'>Interactive sector pages comparing "
-                        "LEAP with ESTO and the 9th Outlook. Adds a few minutes "
-                        "to the run.</p>"
+                        "LEAP with ESTO and the 9th Outlook, for one economy at a "
+                        "time. Works with any number of exports. Adds a few "
+                        "minutes to the run.</p>"
                     )
                     gr.HTML(
                         "<p class='card-note runtime-note'>"

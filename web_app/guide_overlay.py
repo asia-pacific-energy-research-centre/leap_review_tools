@@ -82,10 +82,11 @@ GUIDE_CSS = """
 GUIDE_JS = """
 () => {
   const steps = [
+    { target: '#app-hero', title: 'What this app is for', copy: 'Two jobs, one tool. Any LEAP model can be checked against ESTO history and the 9th Outlook at any point in modelling, using the dashboard. And a model being initialised from the baseline seed can have its energy balance reviewed against the source data it should match — through the same dashboard, or through the workbook that lists every disagreeing cell. Upload one export or several: several give you the dashboard across economies and scenarios, one gives you the workbook as well.', image: '__PURPOSE_IMAGE__' },
     { target: '#balance-upload', title: 'Where this app fits in LEAP initialisation', copy: 'This guided tour covers the review stage of the wider LEAP initialisation process. The major sequence is: import the baseline seed and run LEAP, do a quick LEAP review, use this balance review app, inspect the dashboard, then resolve any material issue and repeat. The web app supports steps 2b and 2c; LEAP remains the source of the baseline and the fixes.', image: '__INITIALISATION_IMAGE__' },
-    { target: '#balance-upload', title: 'Prepare the right export', copy: 'In LEAP, use Petajoules and Detail Level 2 or deeper. A Level 1 export is too shallow to compare meaningfully.', image: '__EXPORT_IMAGE__' },
+    { target: '#balance-upload', title: 'Prepare the right export', copy: 'In LEAP, use Petajoules and Detail Level 2 or deeper; a Level 1 export is too shallow to compare meaningfully. Add as many exports as you like here — each is read for its own economy, scenario and years.', image: '__EXPORT_IMAGE__' },
     { target: '#year-input', title: 'Choose the review year(s)', copy: 'Enter one year such as 2022, or several comma-separated years such as 2022, 2030, 2040. These control the workbook review.', image: '' },
-    { target: '#outputs-wanted', title: 'Choose what to build', copy: 'Keep workbook and dashboard selected when you want both outputs. The dashboard is the visual overview; the workbook is the detailed worklist.', image: '' },
+    { target: '#outputs-wanted', title: 'Choose what to build', copy: 'Keep workbook and dashboard selected when you want both outputs. The dashboard is the visual overview; the workbook is the detailed worklist. With several exports uploaded the workbook fades out, because it covers a single economy and scenario — pick which economy and scenario to render just above.', image: '' },
     { target: '#run-button', title: 'Start the review', copy: 'Run the workflow. Diagnostics, workbooks, dashboard pages, and archives appear in Results when processing finishes. The run can take several minutes.', image: '' },
     { target: '#workbook-note, #results-card', title: 'Read the workbook in order', copy: 'Use LEAP Values to orient yourself, LEAP – Source Error to find disagreements, and Full Expected Source to see the full ninth/ESTO balance table for that year.', image: '__WORKBOOK_IMAGE__' },
     { target: '#saved-reviews, #results-card', title: 'Explore and save the dashboard', copy: 'Open the dashboard link to see the whole picture. Saved reviews stay in this browser; download the complete archive when you need a durable copy.', image: '__DASHBOARD_IMAGE__' }
@@ -133,6 +134,7 @@ GUIDE_JS = """
 """
 
 
+GUIDE_JS = GUIDE_JS.replace("__PURPOSE_IMAGE__", _image_data("what-this-app-is-for.svg"))
 GUIDE_JS = GUIDE_JS.replace("__WORKFLOW_IMAGE__", _image_data("workflow-overview.png"))
 GUIDE_JS = GUIDE_JS.replace("__INITIALISATION_IMAGE__", _image_data("initialisation-review-workflow-landscape.png"))
 GUIDE_JS = GUIDE_JS.replace("__EXPORT_IMAGE__", _image_data("leap-export-detail.png"))
