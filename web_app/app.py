@@ -544,15 +544,13 @@ body, gradio-app {
   border: 0 !important;
   background: transparent !important;
 }
-#run-status { margin-top: 0.15rem; }
-#run-status input, #run-status textarea {
-  padding: 0 !important;
-  border: 0 !important;
-  background: transparent !important;
-  color: var(--muted) !important;
+.run-status-line {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
   font-size: 0.84rem;
   text-align: center;
 }
+.run-status-line.is-failed { color: #a8342a; font-weight: 600; }
 #calculator-animation { min-height: 0; margin: 0; }
 /* Elapsed time sits with the estimate it should be read against. */
 .calc-caption .run-stopwatch {
@@ -715,7 +713,7 @@ body, gradio-app {
 .calc-key:nth-child(2n) { background: #5e8fbe; }
 .calc-key:nth-child(3n) { background: #f09a43; }
 .calc-caption { font-size: 0.86rem; color: #405a73; }
-.calc-caption span { display: inline-block; width: 1.2em; text-align: left; }
+.calc-caption .calc-dots { display: inline-block; width: 1.2em; text-align: left; }
 #calculator-animation.is-running .calc-machine { animation: calculator-wobble 0.65s ease-in-out infinite alternate; }
 #calculator-animation.is-running .calc-key { animation: calculator-blink 0.8s steps(2, end) infinite; }
 #calculator-animation.is-running .calc-key:nth-child(2) { animation-delay: 0.15s; }
@@ -1229,6 +1227,15 @@ RESULTS_EMPTY_HTML = (
 )
 
 
+def _status_html(message: str) -> str:
+    """Return run status as escaped markup, or nothing at all when silent."""
+    text = str(message or "").strip()
+    if not text:
+        return ""
+    tone = "is-failed" if text.lower().startswith("build failed") else "is-done"
+    return f"<p class='run-status-line {tone}'>{html.escape(text)}</p>"
+
+
 def _run_status_line(
     *,
     wants_workbook: bool,
@@ -1290,7 +1297,7 @@ def _calculator_html(
         + ('<i class="calc-key"></i>' * 6)
         + "</div></div>"
         '<div class="calc-caption">Checking balances and preparing your files'
-        "<span>...</span>"
+        '<span class="calc-dots">...</span>'
         '<span class="run-stopwatch" hidden>'
         '<span class="stopwatch-dot" aria-hidden="true"></span>'
         'Elapsed <strong class="stopwatch-value">0:00</strong>'
@@ -1778,11 +1785,13 @@ def build_review_from_export(
         }
         return (
             json.dumps(summary, indent=2, default=str),
-            _run_status_line(
-                wants_workbook=wants_workbook,
-                wants_dashboard=wants_dashboard,
-                dashboard_ok=dashboard_result is not None and dashboard_result.ok,
-                runtime_seconds=runtime_seconds,
+            _status_html(
+                _run_status_line(
+                    wants_workbook=wants_workbook,
+                    wants_dashboard=wants_dashboard,
+                    dashboard_ok=dashboard_result is not None and dashboard_result.ok,
+                    runtime_seconds=runtime_seconds,
+                )
             ),
             [str(path) for path in persistent_workbooks],
             str(persistent_bundle) if persistent_bundle else None,
@@ -1801,7 +1810,7 @@ def build_review_from_export(
     except Exception as error:  # Gradio should show a plain-language failure.
         return (
             "",
-            f"Build failed: {error}",
+            _status_html(f"Build failed: {error}"),
             [],
             None,
             RESULTS_EMPTY_HTML,
@@ -2028,14 +2037,7 @@ def create_app():
                 variant="primary",
                 elem_id="run-button",
             )
-            status = gr.Textbox(
-                label="Run status",
-                value="",
-                interactive=False,
-                show_label=False,
-                container=False,
-                elem_id="run-status",
-            )
+            status = gr.HTML(value="", elem_id="run-status")
             calculator_animation = gr.HTML(
                 _calculator_html(hosted_runtime_profile, want_dashboard=True, years=1),
                 elem_id="calculator-holder",
