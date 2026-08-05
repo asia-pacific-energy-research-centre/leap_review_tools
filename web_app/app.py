@@ -527,16 +527,8 @@ body, gradio-app {
 }
 #calculator-animation { min-height: 0; margin: 0; }
 /* Elapsed time sits with the estimate it should be read against. */
-.run-runtime {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 0.9rem;
-  margin: 0.15rem 0 0.4rem;
-  color: var(--muted);
-  font-size: 0.82rem;
-}
-.run-runtime .run-stopwatch {
+.calc-caption .run-stopwatch {
+  margin-left: 0.6rem;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -546,9 +538,9 @@ body, gradio-app {
   background: #fff6f1;
   color: var(--ink);
 }
-.run-runtime .stopwatch-value { font-variant-numeric: tabular-nums; font-weight: 750; }
-.run-runtime .stopwatch-remaining { color: var(--muted); font-weight: 400; }
-.run-runtime .stopwatch-dot {
+.calc-caption .stopwatch-value { font-variant-numeric: tabular-nums; font-weight: 750; }
+.calc-caption .stopwatch-remaining { color: var(--muted); font-weight: 400; }
+.calc-caption .stopwatch-dot {
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--orange);
   animation: stopwatch-pulse 1s ease-in-out infinite;
@@ -675,11 +667,21 @@ body, gradio-app {
   border-radius: 3px; background: linear-gradient(90deg, #fff4ed, #eef4fa);
   border: 1px solid #e7b49f; }
 #calculator-animation.is-running { display: flex; }
-.calc-machine { position: relative; width: 54px; height: 48px; padding: 5px;
+.calc-machine { position: relative; width: 84px; height: 52px; padding: 5px;
   border: 3px solid #526d88; border-radius: 4px; background: #f8fbff;
   box-shadow: 3px 3px 0 #526d88; transform: rotate(-3deg); }
-.calc-display { height: 13px; padding: 1px 3px; overflow: hidden; border-radius: 3px;
-  background: #dbe7f2; color: #29445f; font: 700 8px/11px monospace; }
+.calc-display {
+  display: grid;
+  place-items: center;
+  height: 16px;
+  padding: 0 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: #cfe0ef;
+  color: #16324f;
+  font: 700 8.5px/16px "Consolas", monospace;
+  letter-spacing: 0.04em;
+}
 .calc-keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin-top: 5px; }
 .calc-key { height: 6px; border-radius: 1px; background: var(--orange); }
 .calc-key:nth-child(2n) { background: #5e8fbe; }
@@ -803,38 +805,44 @@ APP_JS = """
     if (!node) return null;
     return node.tagName === 'BUTTON' ? node : node.querySelector('button');
   };
+  // One poller drives both the working animation and the clock inside it,
+  // keyed off the run button's locked state. The previous binding watched a
+  // status textbox that no longer carries a heartbeat.
   const installStopwatch = () => {
-    const host = document.querySelector('#run-runtime');
     const button = runButtonEl();
-    if (!host || !button) return;
-    const face = host.querySelector('.run-stopwatch');
-    const value = host.querySelector('.stopwatch-value');
-    const remaining = host.querySelector('.stopwatch-remaining');
-    const expected = parseInt(host.dataset.expected || '0', 10);
+    if (!button || button.dataset.stopwatchBound === '1') return;
+    button.dataset.stopwatchBound = '1';
     const clock = (total) => {
       const mins = Math.floor(total / 60);
-      const secs = total % 60;
-      return mins + ':' + String(secs).padStart(2, '0');
+      return mins + ':' + String(total % 60).padStart(2, '0');
     };
     let startedAt = null;
-    const tick = () => {
+    window.setInterval(() => {
+      const host = document.querySelector('#calculator-animation');
+      if (!host) return;
+      const face = host.querySelector('.run-stopwatch');
+      const value = host.querySelector('.stopwatch-value');
+      const remaining = host.querySelector('.stopwatch-remaining');
       const running = button.disabled;
-      if (running && startedAt === null) startedAt = Date.now();
+      host.classList.toggle('is-running', running);
       if (!running) {
-        if (startedAt !== null) { startedAt = null; face.hidden = true; }
+        startedAt = null;
+        if (face) face.hidden = true;
         return;
       }
+      if (startedAt === null) startedAt = Date.now();
+      if (!face || !value) return;
       face.hidden = false;
       const elapsed = Math.floor((Date.now() - startedAt) / 1000);
       value.textContent = clock(elapsed);
-      if (expected > 0) {
+      const expected = parseInt(host.dataset.expected || '0', 10);
+      if (expected > 0 && remaining) {
         const left = expected - elapsed;
         remaining.textContent = left > 0
           ? ' — about ' + clock(left) + ' to go'
-          : ' — longer than usual for this run';
+          : ' — longer than usual';
       }
-    };
-    window.setInterval(tick, 500);
+    }, 500);
   };
   installStopwatch();
   installWallpaperSwitch();
@@ -1225,26 +1233,33 @@ def _card_runtime_note_html(profile: dict[str, object], group: str, *, years: in
     )
 
 
-def _run_runtime_note_html(
+def _calculator_html(
     profile: dict[str, object], *, want_dashboard: bool, years: int
 ) -> str:
-    """Return the whole-run estimate paired with a live elapsed stopwatch.
+    """Return the working animation, carrying the elapsed clock with it.
 
-    The stopwatch is driven in the browser rather than by the server, so it
-    ticks every second instead of only when the run yields a heartbeat.
+    The stopwatch lives here rather than beside the estimates because this
+    block is only shown while a build is running, so the clock appears exactly
+    when it is useful and takes no space the rest of the time. It ticks in the
+    browser: the build itself only yields every ten seconds.
     """
     group = "full_run" if want_dashboard else "workbook"
-    note = format_runtime_note(profile, process_group=group, years=years)
     estimate, _ = estimate_runtime(profile, process_group=group, years=years)
     expected = f' data-expected="{int(estimate)}"' if estimate else ""
     return (
-        f"<div id='run-runtime' class='run-runtime'{expected}>"
-        f"<span class='run-expected'>{html.escape(note)}</span>"
-        "<span class='run-stopwatch' hidden>"
-        "<span class='stopwatch-dot' aria-hidden='true'></span>"
-        "Elapsed <strong class='stopwatch-value'>0:00</strong>"
-        "<span class='stopwatch-remaining'></span>"
-        "</span></div>"
+        f'<div id="calculator-animation" role="status" aria-live="polite"{expected}>'
+        '<div class="calc-machine" aria-hidden="true">'
+        '<div class="calc-display">CALCULATING</div>'
+        '<div class="calc-keys">'
+        + ('<i class="calc-key"></i>' * 6)
+        + "</div></div>"
+        '<div class="calc-caption">Checking balances and preparing your files'
+        "<span>...</span>"
+        '<span class="run-stopwatch" hidden>'
+        '<span class="stopwatch-dot" aria-hidden="true"></span>'
+        'Elapsed <strong class="stopwatch-value">0:00</strong>'
+        '<span class="stopwatch-remaining"></span>'
+        "</span></div></div>"
     )
 
 
@@ -1256,7 +1271,7 @@ def update_runtime_notes(
     years = max(len(_requested_years(year)), 1)
     return (
         _card_runtime_note_html(profile, "workbook", years=years),
-        _run_runtime_note_html(
+        _calculator_html(
             profile,
             want_dashboard=bool(want_dashboard) or not bool(want_workbook),
             years=years,
@@ -1802,7 +1817,7 @@ def build_review_from_export_live(
             )
             yield (
                 "",
-                "Working — the selected build can take several minutes; still running.",
+                "",
                 [],
                 None,
                 RESULTS_EMPTY_HTML,
@@ -1972,10 +1987,6 @@ def create_app():
                         )
                         + "</p>"
                     )
-            run_runtime_note = gr.HTML(
-                _run_runtime_note_html(hosted_runtime_profile, want_dashboard=True, years=1),
-                elem_id="run-runtime-note",
-            )
             run_button = gr.Button(
                 "Run",
                 variant="primary",
@@ -1989,14 +2000,9 @@ def create_app():
                 container=False,
                 elem_id="run-status",
             )
-            gr.HTML(
-                """<div id="calculator-animation" role="status" aria-live="polite">
-                  <div class="calc-machine" aria-hidden="true">
-                    <div class="calc-display">CALCULATING</div>
-                    <div class="calc-keys"><i class="calc-key"></i><i class="calc-key"></i><i class="calc-key"></i><i class="calc-key"></i><i class="calc-key"></i><i class="calc-key"></i></div>
-                  </div>
-                  <div class="calc-caption">Checking balances and preparing your files<span>...</span></div>
-                </div>"""
+            calculator_animation = gr.HTML(
+                _calculator_html(hosted_runtime_profile, want_dashboard=True, years=1),
+                elem_id="calculator-holder",
             )
             with gr.Accordion(
                 "Technical run details",
@@ -2073,7 +2079,7 @@ def create_app():
             _control.change(
                 fn=update_runtime_notes,
                 inputs=[year, want_workbook, want_dashboard],
-                outputs=[workbook_runtime_note, run_runtime_note],
+                outputs=[workbook_runtime_note, calculator_animation],
             )
         clear_export_button.click(
             fn=clear_uploaded_export,
