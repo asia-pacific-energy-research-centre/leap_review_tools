@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import html
 import base64
+from concurrent.futures import ThreadPoolExecutor
 import gzip
 import os
 import re
@@ -1521,6 +1522,59 @@ def _dropdown_update(choices: list[object], value: object) -> object:
     return gr.Dropdown(choices=choices, value=value)
 
 
+def build_review_from_export_live(
+    want_workbook: object,
+    want_dashboard: object,
+    year: object,
+    economy_override: str,
+    balance_export_workbook: object,
+    browser_archives: object = None,
+    dashboard_min_year: float = DEFAULT_DASHBOARD_MIN_YEAR,
+    dashboard_max_year: float = DEFAULT_DASHBOARD_MAX_YEAR,
+):
+    """Keep the Gradio event alive while the full build runs.
+
+    A workbook plus dashboard run can take several minutes.  Running the
+    existing synchronous workflow in a worker and yielding a small heartbeat
+    prevents a browser or hosted proxy from treating the quiet event stream
+    as failed before the final outputs are ready.
+    """
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(
+        build_review_from_export,
+        want_workbook,
+        want_dashboard,
+        year,
+        economy_override,
+        balance_export_workbook,
+        browser_archives,
+        dashboard_min_year,
+        dashboard_max_year,
+    )
+    try:
+        while not future.done():
+            saved_archives = (
+                browser_archives if isinstance(browser_archives, list) else []
+            )
+            yield (
+                "",
+                "Working — the selected build can take several minutes; still running.",
+                [],
+                None,
+                RESULTS_EMPTY_HTML,
+                _dropdown_update(_browser_dashboard_choices(saved_archives), None),
+                saved_archives,
+            )
+            time.sleep(10)
+        yield future.result()
+    except GeneratorExit:
+        executor.shutdown(wait=False, cancel_futures=True)
+        raise
+    finally:
+        if future.done():
+            executor.shutdown(wait=False)
+
+
 def select_dashboard_archive(
     archive_id: str | None,
     browser_archives: object,
@@ -1781,7 +1835,7 @@ def create_app():
             outputs=[export_readout, economy_override, year],
         )
         run_button.click(
-            fn=build_review_from_export,
+            fn=build_review_from_export_live,
             inputs=[
                 want_workbook,
                 want_dashboard,
