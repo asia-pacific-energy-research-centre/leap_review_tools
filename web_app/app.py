@@ -493,6 +493,21 @@ body, gradio-app {
 #download-row > div > label svg { display: none !important; }
 #results-card .result-links { margin-bottom: 0.25rem; }
 #clear-dashboards { align-self: end; max-width: 210px; }
+/* Gradio's own clear is an unlabelled icon, so the action is offered in
+   words as well, kept quiet so it cannot compete with Run. */
+#clear-export {
+  align-self: flex-start;
+  max-width: 220px;
+  min-height: 0 !important;
+  padding: 0.35rem 0.7rem !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 5px !important;
+  background: #ffffff !important;
+  color: var(--muted) !important;
+  font-size: 0.78rem !important;
+  font-weight: 600 !important;
+}
+#clear-export:hover { background: var(--paper) !important; color: var(--ink) !important; }
 /* Vertical trim: the whole flow should read without hunting down the page. */
 /* Gradio wraps inputs in a `.form` div with a dark slate fill; inside our own
    panels that reads as a stray black box, so it is neutralised wherever it
@@ -1249,6 +1264,23 @@ def update_runtime_notes(
     )
 
 
+def clear_uploaded_export() -> tuple[object, str, object, object]:
+    """Drop the loaded export so a different one can be added.
+
+    Gradio's own clear control is an unlabelled icon, which is easy to miss;
+    this is the same action said plainly. Results from a finished run are left
+    alone, because those files are still valid and worth keeping.
+    """
+    import gradio as gr
+
+    return (
+        None,
+        EXPORT_PROMPT_HTML,
+        gr.Textbox(visible=False, value=""),
+        gr.Button(visible=False),
+    )
+
+
 def lock_run_button() -> object:
     """Show the run as under way and refuse a second press."""
     import gradio as gr
@@ -1369,7 +1401,7 @@ def _export_readout_html(*, state: str, label: str, body: str) -> str:
 def inspect_uploaded_export(
     balance_export_workbook: object,
     year: object,
-) -> tuple[str, object, object]:
+) -> tuple[str, object, object, object]:
     """Read the economy, scenario, and years an uploaded export declares.
 
     The export already carries this information in its sheet headers, so the
@@ -1380,7 +1412,12 @@ def inspect_uploaded_export(
 
     hidden_economy = gr.Textbox(visible=False, value="")
     if balance_export_workbook is None or str(balance_export_workbook).strip() == "":
-        return EXPORT_PROMPT_HTML, hidden_economy, gr.Textbox()
+        return (
+            EXPORT_PROMPT_HTML,
+            hidden_economy,
+            gr.Textbox(),
+            gr.Button(visible=False),
+        )
 
     try:
         export_path = _path_from_gradio_file(
@@ -1398,6 +1435,7 @@ def inspect_uploaded_export(
             ),
             hidden_economy,
             gr.Textbox(),
+            gr.Button(visible=True),
         )
 
     # A Level 1 export flattens the balance into single rows, leaving nothing to
@@ -1415,6 +1453,7 @@ def inspect_uploaded_export(
             ),
             hidden_economy,
             gr.Textbox(),
+            gr.Button(visible=True),
         )
 
     year_span = (
@@ -1444,6 +1483,7 @@ def inspect_uploaded_export(
             ),
             gr.Textbox(visible=True),
             year_update,
+            gr.Button(visible=True),
         )
 
     body = (
@@ -1459,6 +1499,7 @@ def inspect_uploaded_export(
         _export_readout_html(state="ready", label="Read from your export", body=body),
         hidden_economy,
         year_update,
+        gr.Button(visible=True),
     )
 
 
@@ -1879,6 +1920,12 @@ def create_app():
                 value=EXPORT_PROMPT_HTML,
                 elem_id="export-readout",
             )
+            clear_export_button = gr.Button(
+                "Use a different export",
+                size="sm",
+                visible=False,
+                elem_id="clear-export",
+            )
             gr.HTML(
                 "<p class='choose-label'>What should this run build?</p>"
             )
@@ -2028,10 +2075,19 @@ def create_app():
                 inputs=[year, want_workbook, want_dashboard],
                 outputs=[workbook_runtime_note, run_runtime_note],
             )
+        clear_export_button.click(
+            fn=clear_uploaded_export,
+            outputs=[
+                balance_export_workbook,
+                export_readout,
+                economy_override,
+                clear_export_button,
+            ],
+        )
         balance_export_workbook.change(
             fn=inspect_uploaded_export,
             inputs=[balance_export_workbook, year],
-            outputs=[export_readout, economy_override, year],
+            outputs=[export_readout, economy_override, year, clear_export_button],
         )
         # The button is locked for the whole run and released afterwards, so a
         # second press cannot start a competing build while one is in flight.
