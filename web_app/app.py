@@ -25,7 +25,11 @@ from pathlib import Path
 from uuid import uuid4
 
 from web_app.guide_overlay import GUIDE_CSS, GUIDE_HTML, GUIDE_JS
-from web_app.runtime_profile import format_runtime_note, load_runtime_profile
+from web_app.runtime_profile import (
+    format_runtime_note,
+    load_runtime_profile,
+    record_runtime_sample,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -273,31 +277,31 @@ body, gradio-app {
    block label, a slate-filled table row, and a bare clear button floating to
    one side. Reduce it to one quiet line — the readout underneath already
    states the economy, scenario and years, which is what a user needs. */
-#balance-upload .file-preview-holder,
-#balance-upload table.file-preview,
-#balance-upload table.file-preview tbody {
+.gradio-container .file-preview-holder,
+.gradio-container table.file-preview,
+.gradio-container table.file-preview tbody {
   min-height: 0 !important;
   height: auto !important;
   margin: 0 !important;
   padding: 0 !important;
 }
-#balance-upload table.file-preview {
+.gradio-container table.file-preview {
   width: 100% !important;
   overflow: hidden;
   border: 1px solid var(--line) !important;
   border-collapse: collapse !important;
   border-radius: 6px !important;
 }
-#balance-upload table.file-preview tr.file { background: var(--paper) !important; }
-#balance-upload table.file-preview td {
+.gradio-container table.file-preview tr.file { background: var(--paper) !important; }
+.gradio-container table.file-preview td {
   padding: 0.45rem 0.7rem !important;
   border: 0 !important;
   background: transparent !important;
   color: var(--ink) !important;
   font-size: 0.83rem !important;
 }
-#balance-upload table.file-preview a { color: var(--orange) !important; }
-#balance-upload .icon-button-wrapper {
+.gradio-container table.file-preview a { color: var(--orange) !important; }
+.gradio-container .icon-button-wrapper {
   position: static !important;
   min-height: 0 !important;
   margin: 0 0 0.35rem auto !important;
@@ -424,6 +428,15 @@ body, gradio-app {
   box-shadow: 0 2px 5px rgba(188, 70, 24, 0.22);
 }
 #run-button:hover { background: #d45a20 !important; }
+/* Locked while a build is in flight: still legible, plainly not pressable. */
+#run-button:disabled, #run-button[disabled] {
+  background: #d9a68c !important;
+  border-color: #d9a68c !important;
+  color: #ffffff !important;
+  cursor: not-allowed !important;
+  opacity: 1 !important;
+  box-shadow: none !important;
+}
 #run-status textarea, #run-status input { font-size: 0.88rem; }
 #results-empty {
   padding: 0.95rem 1.1rem;
@@ -457,7 +470,27 @@ body, gradio-app {
 #results-card:not(:has(.file-preview)) #download-row { display: none !important; }
 #results-card:has(.file-preview) #results-empty { display: none; }
 #download-row .block > button { display: none !important; }
-#download-row .block { border-radius: 6px !important; }
+#download-row .block {
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+#download-row > div > label {
+  position: static !important;
+  display: block !important;
+  margin: 0 0 0.35rem !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--ink) !important;
+  font-size: 0.78rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em;
+  box-shadow: none !important;
+}
+#download-row > div > label svg { display: none !important; }
+#results-card .result-links { margin-bottom: 0.25rem; }
 #clear-dashboards { align-self: end; max-width: 210px; }
 /* Vertical trim: the whole flow should read without hunting down the page. */
 /* Gradio wraps inputs in a `.form` div with a dark slate fill; inside our own
@@ -1097,18 +1130,60 @@ def _run_status_line(
     return status
 
 
+def lock_run_button() -> object:
+    """Show the run as under way and refuse a second press."""
+    import gradio as gr
+
+    return gr.Button("Running…", interactive=False)
+
+
+def release_run_button() -> object:
+    """Return the button to its resting state once a run has finished."""
+    import gradio as gr
+
+    return gr.Button("Run", interactive=True)
+
+
+def _runtime_profile_path() -> Path:
+    """Return the profile this deployment reads and writes."""
+    configured = os.getenv("LEAP_RUNTIME_PROFILE_PATH", "").strip()
+    if configured:
+        return Path(configured)
+    root_copy = REPO_ROOT / "runtime_stats_remote.json"
+    if root_copy.is_file():
+        return root_copy
+    return REPO_ROOT / "web_app" / "runtime_stats_remote.json"
+
+
 def _hosted_runtime_profile() -> dict[str, object]:
     """Read the committed HF profile without creating local runtime state."""
-    configured = os.getenv("LEAP_RUNTIME_PROFILE_PATH", "").strip()
-    candidates = [
-        Path(configured) if configured else None,
-        REPO_ROOT / "runtime_stats_remote.json",
-        REPO_ROOT / "web_app" / "runtime_stats_remote.json",
-    ]
-    for path in candidates:
-        if path is not None and path.is_file():
-            return load_runtime_profile(path)
-    return load_runtime_profile(REPO_ROOT / "web_app" / "runtime_stats_remote.json")
+    return load_runtime_profile(_runtime_profile_path())
+
+
+def _save_runtime_sample(process_group: str, elapsed_seconds: float) -> None:
+    """Fold one measured run into the profile the interface quotes.
+
+    The committed file ships a seed so a freshly built Space can quote a
+    duration immediately. Each hosted run replaces the oldest of the five
+    samples, so the seed is displaced as real measurements arrive.
+
+    A container's filesystem does not survive a rebuild, so samples written
+    here last until the Space is rebuilt and then fall back to the committed
+    seed. Making them outlive a rebuild would mean committing the file back to
+    the repository from inside the Space, which needs a write token.
+    """
+    path = _runtime_profile_path()
+    try:
+        updated = record_runtime_sample(
+            load_runtime_profile(path),
+            process_group=process_group,
+            elapsed_seconds=elapsed_seconds,
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(updated, indent=2), encoding="utf-8")
+    except (OSError, ValueError):
+        # A read-only or full filesystem must not fail a completed build.
+        return
 
 
 def _result_links_html(
@@ -1448,6 +1523,11 @@ def build_review_from_export(
             "dashboard": round(dashboard_seconds, 1) if dashboard_seconds is not None else None,
             "full_run": round(time.perf_counter() - run_started, 1),
         }
+        # Only successful runs are recorded, so a failure cannot drag the
+        # quoted duration around.
+        for group, measured in runtime_seconds.items():
+            if measured is not None:
+                _save_runtime_sample(group, measured)
         summary = {
             "status": "succeeded",
             "source_commit": _source_commit(),
@@ -1834,7 +1914,12 @@ def create_app():
             inputs=[balance_export_workbook, year],
             outputs=[export_readout, economy_override, year],
         )
+        # The button is locked for the whole run and released afterwards, so a
+        # second press cannot start a competing build while one is in flight.
         run_button.click(
+            fn=lock_run_button,
+            outputs=run_button,
+        ).then(
             fn=build_review_from_export_live,
             inputs=[
                 want_workbook,
@@ -1852,6 +1937,9 @@ def create_app():
                 dashboard_archive,
                 browser_archives,
             ],
+        ).then(
+            fn=release_run_button,
+            outputs=run_button,
         )
         dashboard_archive.change(
             fn=select_dashboard_archive,

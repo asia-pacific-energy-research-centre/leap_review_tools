@@ -109,6 +109,10 @@ def format_runtime_note(
         duration = f"about {minutes} min {seconds:02d} sec"
     else:
         duration = f"about {seconds} sec"
+    # A freshly built Space quotes seeded local measurements until hosted runs
+    # displace them, so the wording must not claim they were measured here.
+    if str(profile.get("source", "")) != "huggingface_space":
+        return f"Typical run: {duration} (measured locally; hosted runs replace this)."
     return f"Average on Hugging Face: {duration} (last 5 successful runs)."
 
 

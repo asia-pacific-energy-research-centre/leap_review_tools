@@ -2,15 +2,24 @@
   "schema_version": 1,
   "sample_limit": 5,
   "updated_at": null,
-  "source": "huggingface_space",
+  "source": "local_seed",
+  "note": "Seeded from local runs on 01_AUS Target 2022 so a freshly built Space can quote a duration before it has measured anything itself. Each hosted run replaces the oldest sample, so five hosted runs displace this entirely.",
   "samples_seconds": {
-    "workbook": [],
-    "dashboard": [],
-    "full_run": []
+    "workbook": [
+      207.6,
+      161.6
+    ],
+    "dashboard": [
+      274.6,
+      261.3
+    ],
+    "full_run": [
+      425.3
+    ]
   },
   "averages_seconds": {
-    "workbook": null,
-    "dashboard": null,
-    "full_run": null
+    "workbook": 184.6,
+    "dashboard": 268.0,
+    "full_run": 425.3
   }
 }
