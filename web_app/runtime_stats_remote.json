@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "sample_limit": 5,
+  "updated_at": null,
+  "source": "huggingface_space",
+  "samples_seconds": {
+    "workbook": [],
+    "dashboard": [],
+    "full_run": []
+  },
+  "averages_seconds": {
+    "workbook": null,
+    "dashboard": null,
+    "full_run": null
+  }
+}

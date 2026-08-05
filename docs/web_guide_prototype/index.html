@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LEAP Balance Review · Guide prototype</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand"><span class="brand-mark">L</span><span>LEAP Balance Review</span></div>
+    <nav>
+      <a href="#start">Start here</a>
+      <a href="#workbook">Workbook</a>
+      <a href="#dashboard">Dashboard</a>
+      <button class="tour-button" id="start-tour">▹ Guided tour</button>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero" id="start">
+      <div class="eyebrow">LOW EMISSIONS ANALYSIS PLATFORM</div>
+      <h1>From one LEAP export<br><em>to a review you can act on.</em></h1>
+      <p class="hero-copy">This is a guide to the wider LEAP initialisation process. The web app supports the review loop from the balance checks through the dashboard; follow the guided tour to see where each part fits.</p>
+      <div class="hero-actions"><button class="primary" id="hero-tour">Start the guided tour <span>→</span></button><a class="quiet-link" href="#quick-start">See the app preview</a></div>
+      <div class="hero-note"><span>●</span> No Python, Git, or LEAP connection is needed once the web app is open.</div>
+    </section>
+
+    <section class="workflow-strip" aria-label="Workflow overview">
+      <div class="workflow-card active"><span>01</span><strong>Export</strong><small>Get the energy balance from LEAP</small></div>
+      <div class="connector">→</div>
+      <div class="workflow-card"><span>02</span><strong>Review</strong><small>Find and understand differences</small></div>
+      <div class="connector">→</div>
+      <div class="workflow-card"><span>03</span><strong>Dashboard</strong><small>See the whole picture</small></div>
+    </section>
+
+    <section class="app-demo panel" id="quick-start">
+      <div class="section-kicker">THE WEB APP</div>
+      <div class="section-heading"><div><h2>One file is all the app needs.</h2><p>The economy and scenario are read from the export. You choose the review year(s), then the app calculates the diagnostics, workbook, and dashboard.</p></div><span class="step-chip">Try the tour ↗</span></div>
+      <figure class="process-figure"><img src="assets/initialisation-review-workflow-landscape.png" alt="Major steps in the LEAP initialisation process"><figcaption>The balance review app supports the highlighted review stages; LEAP remains the source of the baseline and the fixes.</figcaption></figure>
+      <div class="mock-app">
+        <div class="mock-topbar"><span class="mini-logo">L</span><strong>LEAP Balance Review</strong><span>Energy Balance Diagnostics</span></div>
+        <div class="mock-body">
+          <div class="mock-title"><div><div class="eyebrow">BALANCE REVIEW</div><h3>Add your LEAP export and pick a year</h3><p>An Excel Energy Balance export is the only file you need.</p></div><div class="one-file"><b>1 file</b><small>is all we need</small></div></div>
+          <div class="mock-controls">
+            <div class="upload-control tour-target" id="target-upload"><b>⇧ Your LEAP Energy Balance export</b><span>Drop your workbook here</span><small>or choose a .xlsx file</small></div>
+            <label class="year-control tour-target" id="target-year">Review year(s)<input value="2022" readonly><small>Separate multiple years with commas.</small></label>
+          </div>
+          <div class="run-row"><div><b>Build your review</b><small>The full run can take several minutes.</small></div><button class="primary tour-target" id="target-run">Start balance review</button></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="content-grid">
+      <article class="panel" id="export">
+        <div class="section-kicker">01 · PREPARE</div><h2>Export the right table from LEAP.</h2>
+        <p>In LEAP, set <strong>Units to Petajoules</strong> and <strong>Detail to Level 2</strong> or deeper. Export all years you want to review. A Level 1 export is too shallow to compare meaningfully.</p>
+        <figure><img src="assets/leap-export-detail.png" alt="LEAP energy balance export detail menu"><figcaption>Use the detail selector to include sectors and subsectors.</figcaption></figure>
+        <div class="callout"><b>What to bring</b><br>One LEAP Energy Balance workbook. The web app reads the economy and scenario from it, so you do not need to type them separately.</div>
+      </article>
+      <article class="panel" id="inputs">
+        <div class="section-kicker">02 · INPUTS</div><h2>Choose the balance review year(s).</h2>
+        <p>Enter one year such as <code>2022</code>, or several separated by commas such as <code>2022, 2030, 2040</code>. The dashboard uses the latest year in the configured ESTO dataset as its base year.</p>
+        <div class="mini-list"><div><span>1</span><b>Upload</b><small>Drop the workbook into the export area.</small></div><div><span>2</span><b>Review years</b><small>Choose the historical or projection years to inspect.</small></div><div><span>3</span><b>Run</b><small>Build the balance review workbook and dashboard.</small></div></div>
+      </article>
+    </section>
+
+    <section class="panel split-section" id="workbook">
+      <div><div class="section-kicker">03 · REVIEW WORKBOOK</div><h2>Read the sheets as a story.</h2><p>The workbook is a comparison, not a verdict. A difference means LEAP and the reference data disagree; it does not automatically mean LEAP is wrong.</p><div class="sheet-list"><div><b>01 · LEAP Values</b><span>What did LEAP produce?</span></div><div class="accent"><b>02 · LEAP – Source Error</b><span>Where does it disagree, and by how much?</span></div><div><b>03 · Correct Source Values</b><span>What does the source data say it should be?</span></div><div><b>04 · Full Expected Source</b><span>What should exist, including missing rows?</span></div></div></div>
+      <figure><img src="assets/review-workbook.png" alt="Balance review workbook in Excel"><figcaption>Start with the largest red values on the Source Error sheet.</figcaption></figure>
+    </section>
+
+    <section class="panel split-section dashboard-section" id="dashboard">
+      <figure><img src="assets/dashboard-supply.png" alt="Interactive supply dashboard"><figcaption>Historical values compare with ESTO; projections compare with the 9th Outlook.</figcaption></figure>
+      <div><div class="section-kicker">04 · DASHBOARD</div><h2>Use the dashboard for the whole picture.</h2><p>The dashboard turns the same comparison into interactive sector pages. Select a page, hide or show series from the legend, and inspect the largest differences.</p><div class="dashboard-pills"><span>Supply</span><span>Power</span><span>Transport</span><span>Buildings</span><span>Industry</span><span>Refining</span></div><div class="callout"><b>Saved dashboards</b><br>Saved views stay in your browser. Download the full archive when you need a durable copy or want to share it.</div></div>
+    </section>
+
+    <section class="panel troubleshooting" id="troubleshooting"><div class="section-kicker">05 · WHEN SOMETHING LOOKS WRONG</div><h2>Start with the simplest explanation.</h2><div class="triage-grid"><div><b>1 · The export</b><p>Check that the workbook is Level 2 or deeper and covers the requested year.</p></div><div><b>2 · The comparison</b><p>A mapping or source-row interpretation may explain the difference.</p></div><div><b>3 · The baseline</b><p>The seed values or assumptions may need to be reviewed.</p></div></div></section>
+
+    <footer><span>LEAP Balance Review · Documentation prototype</span><span>Built as static HTML · no backend connection</span></footer>
+  </main>
+
+  <div class="tour-backdrop" id="tour-backdrop" hidden></div>
+  <aside class="tour-popover" id="tour-popover" hidden aria-live="polite">
+    <div class="tour-progress"><span id="tour-step">1</span> of <span id="tour-total">8</span><button id="close-tour" aria-label="Close guided tour">×</button></div>
+    <div class="tour-kicker">LEAP BALANCE REVIEW GUIDE</div><h3 id="tour-title"></h3><p id="tour-copy"></p><img id="tour-image" class="tour-image" alt=""><div class="tour-actions"><button class="quiet-link" id="tour-back">Back</button><button class="primary" id="tour-next">Next <span>→</span></button></div>
+  </aside>
+  <link rel="stylesheet" href="tour-overrides.css">
+  <script src="guide.js"></script>
+</body>
+</html>

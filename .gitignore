@@ -1,0 +1,14 @@
+# The runtime closure is generated from the source repositories, never edited
+# here. Rebuild it with `python scripts/refresh_runtime.py`.
+runtime/
+
+__pycache__/
+*.py[cod]
+.venv/
+.conda/
+.env
+
+# Wallpapers and guide screenshots are part of the interface, so images under
+# web_app/assets and docs/ are tracked deliberately. Nothing else should be.
+*.tmp
+*.log

@@ -1,0 +1,7 @@
+.tour-popover{width:min(1450px,calc(100vw - 30px));padding:26px}
+.tour-kicker{color:var(--orange);font-size:10px;letter-spacing:.14em;font-weight:800;margin-top:20px}
+.tour-popover h3{font-size:26px;margin:6px 0 10px}
+.tour-popover p{font-size:15px;line-height:1.6;margin:0 0 16px}
+.tour-image{display:block;width:100%;max-height:min(70vh,760px);object-fit:contain;object-position:left center;background:#f3f6fa;border:1px solid var(--line);border-radius:5px;padding:8px}
+.tour-image[hidden]{display:none}
+.tour-popover .tour-actions{margin-top:22px}

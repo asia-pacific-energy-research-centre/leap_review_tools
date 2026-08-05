@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" role="img" aria-labelledby="title desc">
+  <title id="title">LEAP initialisation process</title>
+  <desc id="desc">A process from importing the baseline seed and running LEAP, through quick review, balance review, dashboard review, and issue resolution, to a clean initialised area.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 Z" fill="#6b8199"/></marker>
+    <style>
+      .box{fill:#fff;stroke:#9bb0c5;stroke-width:2}.app{fill:#fff4ec;stroke:#e7672a}.done{fill:#effaf4;stroke:#36a269}.decision{fill:#f4efff;stroke:#8d6dcc}.text{font:600 19px 'Segoe UI',Arial,sans-serif;fill:#173452}.small{font:500 16px 'Segoe UI',Arial,sans-serif;fill:#526b84}.line{fill:none;stroke:#6b8199;stroke-width:2.5;marker-end:url(#arrow)}.label{font:600 15px 'Segoe UI',Arial,sans-serif;fill:#526b84}
+    </style>
+  </defs>
+  <rect width="1200" height="820" fill="#f7fafd"/>
+  <text x="44" y="48" class="text" font-size="25">LEAP initialisation: review, resolve, and repeat</text>
+  <text x="44" y="78" class="small">The balance review app supports steps 2b–2d; LEAP remains the source of the baseline and the fixes.</text>
+  <rect x="55" y="115" width="250" height="76" rx="10" class="box"/><text x="180" y="145" text-anchor="middle" class="text">1. Import baseline seed</text><text x="180" y="171" text-anchor="middle" class="small">and run LEAP</text>
+  <rect x="350" y="115" width="220" height="76" rx="10" class="box"/><text x="460" y="145" text-anchor="middle" class="text">2a. Quick review</text><text x="460" y="171" text-anchor="middle" class="small">in LEAP</text>
+  <rect x="615" y="115" width="250" height="76" rx="10" class="app"/><text x="740" y="145" text-anchor="middle" class="text">2b. Balance review app</text><text x="740" y="171" text-anchor="middle" class="small">check base + projection year</text>
+  <rect x="910" y="115" width="235" height="76" rx="10" class="app"/><text x="1027" y="145" text-anchor="middle" class="text">2c. Dashboard</text><text x="1027" y="171" text-anchor="middle" class="small">check material trends</text>
+  <path d="M305 153 H350 M570 153 H615 M865 153 H910" class="line"/>
+  <rect x="942" y="255" width="175" height="70" rx="10" class="done"/><text x="1029" y="284" text-anchor="middle" class="text">Clean slate area</text><text x="1029" y="307" text-anchor="middle" class="small">is initialised</text><path d="M1027 191 V255" class="line"/>
+  <polygon points="1027,390 1117,438 1027,486 937,438" class="decision"/><text x="1027" y="433" text-anchor="middle" class="text">Can LEAP supply</text><text x="1027" y="455" text-anchor="middle" class="text">rules fix it?</text><path d="M1027 325 V390" class="line"/>
+  <rect x="735" y="540" width="230" height="72" rx="10" class="box"/><text x="850" y="570" text-anchor="middle" class="text">Fix issue and</text><text x="850" y="594" text-anchor="middle" class="small">rerun LEAP</text><path d="M982 438 H850 V540" class="line"/><text x="862" y="468" class="label">Yes</text><path d="M735 576 H460 V191" class="line"/><text x="588" y="562" class="label">return to 2a</text>
+  <polygon points="1027,560 1125,610 1027,660 929,610" class="decision"/><text x="1027" y="605" text-anchor="middle" class="text">Known baseline</text><text x="1027" y="627" text-anchor="middle" class="text">issue?</text><path d="M1027 486 V560" class="line"/><text x="1040" y="530" class="label">No</text>
+  <rect x="965" y="710" width="180" height="62" rx="10" class="box"/><text x="1055" y="737" text-anchor="middle" class="text">Follow the</text><text x="1055" y="759" text-anchor="middle" class="small">documented action</text><path d="M1055 660 V710" class="line"/><text x="1070" y="690" class="label">Yes</text>
+  <rect x="675" y="710" width="210" height="62" rx="10" class="box"/><text x="780" y="737" text-anchor="middle" class="text">Report issue to</text><text x="780" y="759" text-anchor="middle" class="small">leap_initialisation developer</text><path d="M929 610 H780 V710" class="line"/><text x="815" y="635" class="label">No</text>
+</svg>

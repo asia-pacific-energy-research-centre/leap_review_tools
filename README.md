@@ -1,0 +1,69 @@
+# LEAP review tools
+
+The web app that turns one LEAP Energy Balance export into a balance-review
+workbook and a comparison dashboard. This repository is the home of the tool
+itself: the interface, its guide, and the script that assembles a runnable
+copy.
+
+## What lives here, and what does not
+
+The analysis does **not** live here. It stays in the three source
+repositories, which remain the single source of truth:
+
+| Repository | Provides |
+|---|---|
+| `leap_initialisation` | diagnostics, the workbook builder, export inference, the run orchestration |
+| `leap_mappings` | the mapping chain between LEAP, ESTO and the 9th Outlook |
+| `leap_dashboard` | the dashboard renderer |
+
+This repository holds the front end and pulls what it needs from those three
+on demand. Nothing is copied by hand.
+
+```text
+web_app/            the Gradio app, its guide overlay and assets
+scripts/            refresh_runtime.py — pulls the runtime closure in
+docs/               design notes, the user guide, the guide prototype
+runtime/            generated, git-ignored: the pulled closure
+```
+
+## Running it
+
+Two modes, and the app picks between them itself.
+
+**Development** — with `leap_initialisation`, `leap_mappings` and
+`leap_dashboard` checked out beside this repository, just run it. Each source
+repository is read from its live checkout, so a change there is picked up
+immediately:
+
+```bash
+python web_app/app.py
+```
+
+**Deployment** — pull a pinned copy of the runtime closure first. The app then
+uses that instead of the live checkouts, so the running Space matches a known
+set of commits:
+
+```bash
+python scripts/refresh_runtime.py --dry-run
+python scripts/refresh_runtime.py
+```
+
+The refresh reads `config/portable_release_manifest.toml` from
+`leap_initialisation`, copies only the paths it declares as runtime assets,
+and writes `runtime/source_manifest.json` recording the commit and branch each
+repository was on. It refuses to run against repositories with uncommitted
+changes unless you pass `--allow-dirty`, so a prepared runtime always points at
+committed source.
+
+Set `LEAP_RUNTIME_ROOT` or `LEAP_SOURCE_PARENT` if either location differs.
+
+## Publishing
+
+The Hugging Face Space is a subset of this repository, not a separate project:
+`web_app/`, `requirements.txt` and a prepared `runtime/`. Refresh the runtime,
+run the app locally against it, and only then publish. A deployment must be
+rebuilt from a refreshed runtime whenever the source repositories move on.
+
+Before publishing anywhere public, check that every copied file is safe to
+redistribute — a public repository containing the runtime also publishes the
+copied code and data.
