@@ -26,6 +26,7 @@ from uuid import uuid4
 
 from web_app.guide_overlay import GUIDE_CSS, GUIDE_HTML, GUIDE_JS
 from web_app.runtime_profile import (
+    estimate_runtime,
     format_runtime_note,
     load_runtime_profile,
     record_runtime_sample,
@@ -510,6 +511,34 @@ body, gradio-app {
   text-align: center;
 }
 #calculator-animation { min-height: 0; margin: 0; }
+/* Elapsed time sits with the estimate it should be read against. */
+.run-runtime {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.9rem;
+  margin: 0.15rem 0 0.4rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.run-runtime .run-stopwatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid #e7c3ae;
+  border-radius: 999px;
+  background: #fff6f1;
+  color: var(--ink);
+}
+.run-runtime .stopwatch-value { font-variant-numeric: tabular-nums; font-weight: 750; }
+.run-runtime .stopwatch-remaining { color: var(--muted); font-weight: 400; }
+.run-runtime .stopwatch-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--orange);
+  animation: stopwatch-pulse 1s ease-in-out infinite;
+}
+@keyframes stopwatch-pulse { 50% { opacity: 0.25; } }
 /* Wallpaper switcher: deliberately out of the way, bottom-left, above the
    wallpaper it changes. */
 #wallpaper-switch {
@@ -725,7 +754,7 @@ APP_JS = """
   }, true);
   const install = () => {
     relabelUpload();
-    const button = document.querySelector('#run-button button');
+    const button = runButtonEl();
     const animation = document.querySelector('#calculator-animation');
     const status = document.querySelector('#run-status textarea, #run-status input');
     if (!button || !animation || button.dataset.calculatorBound === '1') return;
@@ -751,6 +780,48 @@ APP_JS = """
       window.setTimeout(() => { if (running) stop(); }, 900000);
     });
   };
+  // Elapsed time ticks in the browser: the build only yields every ten
+  // seconds, which is far too coarse to watch.
+  // Gradio puts elem_id on the button itself, so look for both shapes.
+  const runButtonEl = () => {
+    const node = document.querySelector('#run-button');
+    if (!node) return null;
+    return node.tagName === 'BUTTON' ? node : node.querySelector('button');
+  };
+  const installStopwatch = () => {
+    const host = document.querySelector('#run-runtime');
+    const button = runButtonEl();
+    if (!host || !button) return;
+    const face = host.querySelector('.run-stopwatch');
+    const value = host.querySelector('.stopwatch-value');
+    const remaining = host.querySelector('.stopwatch-remaining');
+    const expected = parseInt(host.dataset.expected || '0', 10);
+    const clock = (total) => {
+      const mins = Math.floor(total / 60);
+      const secs = total % 60;
+      return mins + ':' + String(secs).padStart(2, '0');
+    };
+    let startedAt = null;
+    const tick = () => {
+      const running = button.disabled;
+      if (running && startedAt === null) startedAt = Date.now();
+      if (!running) {
+        if (startedAt !== null) { startedAt = null; face.hidden = true; }
+        return;
+      }
+      face.hidden = false;
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+      value.textContent = clock(elapsed);
+      if (expected > 0) {
+        const left = expected - elapsed;
+        remaining.textContent = left > 0
+          ? ' — about ' + clock(left) + ' to go'
+          : ' — longer than usual for this run';
+      }
+    };
+    window.setInterval(tick, 500);
+  };
+  installStopwatch();
   installWallpaperSwitch();
   window.setTimeout(() => { install(); syncOutputCards(); }, 150);
   new MutationObserver(install).observe(document.body, { childList: true, subtree: true });
@@ -1130,6 +1201,54 @@ def _run_status_line(
     return status
 
 
+def _card_runtime_note_html(profile: dict[str, object], group: str, *, years: int) -> str:
+    """Return one process card's runtime note."""
+    return (
+        "<p class='card-note runtime-note'>"
+        + html.escape(format_runtime_note(profile, process_group=group, years=years))
+        + "</p>"
+    )
+
+
+def _run_runtime_note_html(
+    profile: dict[str, object], *, want_dashboard: bool, years: int
+) -> str:
+    """Return the whole-run estimate paired with a live elapsed stopwatch.
+
+    The stopwatch is driven in the browser rather than by the server, so it
+    ticks every second instead of only when the run yields a heartbeat.
+    """
+    group = "full_run" if want_dashboard else "workbook"
+    note = format_runtime_note(profile, process_group=group, years=years)
+    estimate, _ = estimate_runtime(profile, process_group=group, years=years)
+    expected = f' data-expected="{int(estimate)}"' if estimate else ""
+    return (
+        f"<div id='run-runtime' class='run-runtime'{expected}>"
+        f"<span class='run-expected'>{html.escape(note)}</span>"
+        "<span class='run-stopwatch' hidden>"
+        "<span class='stopwatch-dot' aria-hidden='true'></span>"
+        "Elapsed <strong class='stopwatch-value'>0:00</strong>"
+        "<span class='stopwatch-remaining'></span>"
+        "</span></div>"
+    )
+
+
+def update_runtime_notes(
+    year: object, want_workbook: object, want_dashboard: object
+) -> tuple[str, str]:
+    """Re-quote the estimates for the year count currently typed in."""
+    profile = _hosted_runtime_profile()
+    years = max(len(_requested_years(year)), 1)
+    return (
+        _card_runtime_note_html(profile, "workbook", years=years),
+        _run_runtime_note_html(
+            profile,
+            want_dashboard=bool(want_dashboard) or not bool(want_workbook),
+            years=years,
+        ),
+    )
+
+
 def lock_run_button() -> object:
     """Show the run as under way and refuse a second press."""
     import gradio as gr
@@ -1160,7 +1279,9 @@ def _hosted_runtime_profile() -> dict[str, object]:
     return load_runtime_profile(_runtime_profile_path())
 
 
-def _save_runtime_sample(process_group: str, elapsed_seconds: float) -> None:
+def _save_runtime_sample(
+    process_group: str, elapsed_seconds: float, years: int | None = None
+) -> None:
     """Fold one measured run into the profile the interface quotes.
 
     The committed file ships a seed so a freshly built Space can quote a
@@ -1178,6 +1299,7 @@ def _save_runtime_sample(process_group: str, elapsed_seconds: float) -> None:
             load_runtime_profile(path),
             process_group=process_group,
             elapsed_seconds=elapsed_seconds,
+            years=years,
         )
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(updated, indent=2), encoding="utf-8")
@@ -1525,9 +1647,10 @@ def build_review_from_export(
         }
         # Only successful runs are recorded, so a failure cannot drag the
         # quoted duration around.
+        year_count = len(requested_years) or None
         for group, measured in runtime_seconds.items():
             if measured is not None:
-                _save_runtime_sample(group, measured)
+                _save_runtime_sample(group, measured, years=year_count)
         summary = {
             "status": "succeeded",
             "source_commit": _source_commit(),
@@ -1774,15 +1897,11 @@ def create_app():
                         info="Separate multiple years with commas.",
                         elem_id="year-input",
                     )
-                    gr.HTML(
-                        "<p class='card-note runtime-note'>"
-                        + html.escape(
-                            format_runtime_note(
-                                hosted_runtime_profile,
-                                process_group="workbook",
-                            )
-                        )
-                        + "</p>"
+                    workbook_runtime_note = gr.HTML(
+                        _card_runtime_note_html(
+                            hosted_runtime_profile, "workbook", years=1
+                        ),
+                        elem_id="workbook-runtime-note",
                     )
                 with gr.Column(elem_classes=["output-card"], elem_id="dashboard-choice"):
                     want_dashboard = gr.Checkbox(
@@ -1806,15 +1925,9 @@ def create_app():
                         )
                         + "</p>"
                     )
-            gr.HTML(
-                "<p class='run-runtime-note'>"
-                + html.escape(
-                    format_runtime_note(
-                        hosted_runtime_profile,
-                        process_group="full_run",
-                    )
-                )
-                + "</p>"
+            run_runtime_note = gr.HTML(
+                _run_runtime_note_html(hosted_runtime_profile, want_dashboard=True, years=1),
+                elem_id="run-runtime-note",
             )
             run_button = gr.Button(
                 "Run",
@@ -1909,6 +2022,12 @@ def create_app():
                     elem_id="saved-link",
                 )
 
+        for _control in (year, want_workbook, want_dashboard):
+            _control.change(
+                fn=update_runtime_notes,
+                inputs=[year, want_workbook, want_dashboard],
+                outputs=[workbook_runtime_note, run_runtime_note],
+            )
         balance_export_workbook.change(
             fn=inspect_uploaded_export,
             inputs=[balance_export_workbook, year],

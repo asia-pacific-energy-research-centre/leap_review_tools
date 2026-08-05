@@ -1,13 +1,15 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "sample_limit": 5,
   "updated_at": null,
   "source": "local_seed",
-  "note": "Seeded from local runs on 01_AUS Target 2022 so a freshly built Space can quote a duration before it has measured anything itself. Each hosted run replaces the oldest sample, so five hosted runs displace this entirely.",
+  "note": "Seeded from local runs on 01_AUS Target 2022 so a freshly built Space can quote a duration before measuring anything itself. Workbook samples cover 1, 2 and 3 review years so a per-year cost can be separated from fixed overhead. Hosted runs replace these five at a time.",
   "samples_seconds": {
     "workbook": [
       207.6,
-      161.6
+      161.6,
+      230.7,
+      236.6
     ],
     "dashboard": [
       274.6,
@@ -17,8 +19,23 @@
       425.3
     ]
   },
+  "samples_years": {
+    "workbook": [
+      1,
+      1,
+      2,
+      3
+    ],
+    "dashboard": [
+      null,
+      null
+    ],
+    "full_run": [
+      1
+    ]
+  },
   "averages_seconds": {
-    "workbook": 184.6,
+    "workbook": 209.1,
     "dashboard": 268.0,
     "full_run": 425.3
   }
