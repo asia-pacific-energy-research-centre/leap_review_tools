@@ -1369,8 +1369,11 @@ def _publish_dashboard_pages(
         "a:hover{background:#fff6f1}"
         "</style></head><body>"
         "<h1>LEAP dashboard</h1>"
+        # No year here. It is the workbook's review year, which says nothing
+        # about a dashboard: the dashboard draws its own full year range, so
+        # naming one year invited the reader to think it was filtered to it.
         f"<p class='meta'>{html.escape(str(economy))} &nbsp;|&nbsp; "
-        f"{html.escape(scenario_label)} &nbsp;|&nbsp; {html.escape(str(years))}</p>"
+        f"{html.escape(scenario_label)}</p>"
         f"<ul>{''.join(links)}</ul></body></html>",
         encoding="utf-8",
     )
