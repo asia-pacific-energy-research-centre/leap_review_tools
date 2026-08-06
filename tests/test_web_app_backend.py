@@ -14,6 +14,7 @@ from web_app.app import (
     _cleanup_stale_web_artifacts,
     _compress_dashboard_html,
     _decompress_dashboard_html,
+    _locked_dashboard_html,
     _write_diagnostics_bundle,
 )
 
@@ -106,3 +107,24 @@ def test_diagnostics_bundle_contains_workbooks_diagnostics_dashboard_and_logs(
             "dashboard/page.html",
             "logs/run.log",
         }
+
+
+def test_single_scenario_dashboard_is_pinned_and_loses_its_toggle():
+    """One scenario means the other view has no data behind it."""
+    page = _locked_dashboard_html("<html><body></body></html>", "Reference")
+
+    assert ".scenario-toggle { display:none" in page
+    assert 'var mode = "ref"' in page
+
+
+def test_two_scenario_dashboard_keeps_its_toggle_unpinned():
+    """Both scenarios uploaded: the user switches between them in place."""
+    page = _locked_dashboard_html(
+        "<html><body></body></html>", "Reference", allow_switching=True
+    )
+
+    assert ".scenario-toggle" not in page.split("</style>")[0]
+    assert 'var mode = ""' in page
+    # The renderer's own dashboard switcher points at folders this app does
+    # not serve, so it stays hidden either way.
+    assert ".dashboard-switcher { display:none" in page

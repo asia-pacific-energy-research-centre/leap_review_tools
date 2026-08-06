@@ -1258,6 +1258,7 @@ def _dashboard_snapshot(
     economy: str,
     scenario: str,
     years: object,
+    scenarios: object = (),
 ) -> dict[str, object]:
     """Create a compressed browser-local snapshot of every dashboard page."""
     pages = {}
@@ -1273,6 +1274,10 @@ def _dashboard_snapshot(
         "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "economy": economy,
         "scenario": scenario,
+        # Kept beside it so a restored review knows whether the economy had
+        # both scenarios, which is what decides the toggle.
+        "scenarios": [str(name) for name in (scenarios or ()) if str(name).strip()]
+        or ([scenario] if str(scenario).strip() else []),
         "years": years,
         "pages": pages,
         "storage": "browser-local",
@@ -1310,6 +1315,7 @@ def _publish_dashboard_pages(
     economy: str,
     scenario: str,
     years: object,
+    scenarios: object = (),
 ) -> str | None:
     """Write dashboard pages to a served folder and return the index URL.
 
@@ -1323,12 +1329,25 @@ def _publish_dashboard_pages(
     run_directory = DASHBOARD_SERVE_ROOT / uuid4().hex
     run_directory.mkdir(parents=True, exist_ok=True)
 
+    # An economy uploaded with both scenarios keeps its toggle; one uploaded
+    # with a single scenario is pinned to it. A review saved before this was
+    # recorded carries one scenario, which is the pinned case.
+    available = [str(name) for name in (scenarios or ()) if str(name).strip()]
+    if not available:
+        available = [scenario] if str(scenario).strip() else []
+    modes = {_scenario_mode(name) for name in available}
+    allow_switching = len({mode for mode in modes if mode}) > 1
+    scenario_label = ", ".join(dict.fromkeys(available)) or str(scenario)
+
     links = []
     for page_name in sorted(pages):
         page_html = _decompress_dashboard_html(str(pages[page_name]))
         safe_name = Path(str(page_name)).name
         (run_directory / safe_name).write_text(
-            _locked_dashboard_html(page_html, scenario), encoding="utf-8"
+            _locked_dashboard_html(
+                page_html, scenario, allow_switching=allow_switching
+            ),
+            encoding="utf-8",
         )
         links.append(
             f'<li><a href="{html.escape(safe_name)}">'
@@ -1351,23 +1370,45 @@ def _publish_dashboard_pages(
         "</style></head><body>"
         "<h1>LEAP dashboard</h1>"
         f"<p class='meta'>{html.escape(str(economy))} &nbsp;|&nbsp; "
-        f"{html.escape(str(scenario))} &nbsp;|&nbsp; {html.escape(str(years))}</p>"
+        f"{html.escape(scenario_label)} &nbsp;|&nbsp; {html.escape(str(years))}</p>"
         f"<ul>{''.join(links)}</ul></body></html>",
         encoding="utf-8",
     )
     return f"/gradio_api/file={index_path.as_posix()}"
 
 
-def _locked_dashboard_html(page_html: str, scenario: str) -> str:
-    """Pin a generated page to the scenario this run actually produced."""
-    scenario_mode = {"reference": "ref", "target": "tgt"}.get(scenario.casefold(), "")
+def _scenario_mode(scenario: str) -> str:
+    """Return the renderer's mode token for a scenario name, if it has one."""
+    return {"reference": "ref", "target": "tgt"}.get(str(scenario).casefold(), "")
+
+
+def _locked_dashboard_html(
+    page_html: str, scenario: str, *, allow_switching: bool = False
+) -> str:
+    """Pin a generated page to the scenario this run actually produced.
+
+    A page always carries the renderer's Reference/Target toggle, but it only
+    means anything when the economy was uploaded with both: switching to a
+    scenario with no export behind it empties every chart. So the toggle is
+    left in place for an economy that has both scenarios and taken away for
+    one that does not, where the single scenario is pinned instead.
+
+    The dashboard switcher goes either way. It jumps between dashboards in the
+    renderer's own output folder, which is not what this app hands out.
+    """
+    scenario_mode = "" if allow_switching else _scenario_mode(scenario)
+    hidden = (
+        ".dashboard-switcher"
+        if allow_switching
+        else ".dashboard-switcher, .scenario-toggle"
+    )
     locked_controls = """
 <style>
-  .dashboard-switcher, .scenario-toggle { display:none !important; }
+  %(hidden)s { display:none !important; }
 </style>
 <script>
   (function () {
-    var mode = %s;
+    var mode = %(mode)s;
     if (mode) {
       try { localStorage.setItem('common-esto-scenario-mode', mode); } catch (e) {}
       if (window.applyScenarioMode) {
@@ -1378,7 +1419,7 @@ def _locked_dashboard_html(page_html: str, scenario: str) -> str:
     }
   }());
 </script>
-""" % json.dumps(scenario_mode)
+""" % {"hidden": hidden, "mode": json.dumps(scenario_mode)}
     if "</body>" in page_html:
         return page_html.replace("</body>", locked_controls + "</body>", 1)
     return page_html + locked_controls
@@ -2284,17 +2325,30 @@ def build_review_from_export(
             if rendered.get("error"):
                 continue
             name = str(rendered["economy"])
+            # The scenarios this economy was uploaded with. Reading them per
+            # economy matters: taking the run's first scenario would pin a
+            # target-only economy to a reference view that has no data.
+            economy_scenarios = list(
+                dict.fromkeys(
+                    upload.scenario
+                    for upload in grouped.get(name, ())
+                    if upload.scenario
+                )
+            )
+            economy_scenario = economy_scenarios[0] if economy_scenarios else scenario_value
             snapshot_for = _dashboard_snapshot(
                 rendered["directory"],
                 economy=name,
-                scenario=scenario_value,
+                scenario=economy_scenario,
                 years=years_built or "",
+                scenarios=economy_scenarios,
             )
             url = _publish_dashboard_pages(
                 snapshot_for["pages"],
                 economy=name,
-                scenario=scenario_value,
+                scenario=economy_scenario,
                 years=years_built or "",
+                scenarios=economy_scenarios,
             )
             snapshots.append({"economy": name, "snapshot": snapshot_for, "url": url})
 
@@ -2546,6 +2600,7 @@ def restore_last_run(last_run: object, browser_archives: object):
                 economy=str(archive.get("economy", "")),
                 scenario=str(archive.get("scenario", "")),
                 years=archive.get("years", ""),
+                scenarios=archive.get("scenarios") or (),
             )
         except (OSError, ValueError, UnicodeDecodeError):
             continue
@@ -2620,6 +2675,7 @@ def select_dashboard_archive(
             economy=str(record.get("economy", "")),
             scenario=str(record.get("scenario", "")),
             years=record.get("years", ""),
+            scenarios=record.get("scenarios") or (),
         )
     except (OSError, ValueError, UnicodeDecodeError) as error:
         return (
@@ -2761,8 +2817,9 @@ def create_app():
                     )
                     gr.HTML(
                         "<p class='card-note'>Interactive sector pages comparing "
-                        "LEAP with ESTO and the 9th Outlook, for one economy at a "
-                        "time. Works with any number of exports. Adds a few "
+                        "LEAP with ESTO and the 9th Outlook, one dashboard per "
+                        "economy. Upload both scenarios for an economy and its "
+                        "dashboard gets a Reference/Target toggle. Adds a few "
                         "minutes to the run.</p>"
                     )
                     gr.HTML(
