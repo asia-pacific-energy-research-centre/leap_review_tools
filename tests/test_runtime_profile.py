@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from web_app.runtime_profile import (
+    SAMPLE_LIMIT,
     estimate_runtime,
     empty_runtime_profile,
     format_runtime_note,
@@ -8,17 +9,22 @@ from web_app.runtime_profile import (
 )
 
 
-def test_runtime_profile_keeps_only_last_five_samples() -> None:
+def test_runtime_profile_keeps_only_the_most_recent_samples() -> None:
+    """Older measurements fall off the end once the window is full."""
     profile = empty_runtime_profile()
-    for value in range(1, 8):
+    for value in range(1, SAMPLE_LIMIT + 3):
         profile = record_runtime_sample(
             profile,
             process_group="dashboard",
             elapsed_seconds=value,
         )
 
-    assert profile["samples_seconds"]["dashboard"] == [3.0, 4.0, 5.0, 6.0, 7.0]
-    assert profile["averages_seconds"]["dashboard"] == 5.0
+    kept = profile["samples_seconds"]["dashboard"]
+    assert len(kept) == SAMPLE_LIMIT
+    # The two oldest were dropped, the newest is still there.
+    assert kept[0] == 3.0
+    assert kept[-1] == float(SAMPLE_LIMIT + 2)
+    assert profile["averages_seconds"]["dashboard"] == round(sum(kept) / len(kept), 1)
 
 
 def test_runtime_profile_does_not_mix_process_groups() -> None:

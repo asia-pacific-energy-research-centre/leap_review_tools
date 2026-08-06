@@ -3,7 +3,7 @@
 
 The profile is deliberately a plain JSON artifact maintained for the hosted
 Space.  It is not written by normal local or public-user runs.  Each process
-group keeps only its five most recent successful measurements.
+group keeps its most recent successful measurements, up to SAMPLE_LIMIT.
 """
 
 from __future__ import annotations
@@ -15,7 +15,11 @@ from pathlib import Path
 from typing import Any
 
 
-SAMPLE_LIMIT = 5
+# Twenty-five measurements per process group rather than five. A handful of
+# runs on shared hosted hardware is a noisy thing to average, and the
+# interface quotes that average as what to expect; a longer window steadies
+# it without going so far back that it describes a different machine.
+SAMPLE_LIMIT = 25
 PROFILE_SCHEMA_VERSION = 2
 PROCESS_GROUPS = ("workbook", "dashboard", "full_run")
 # A workbook is built per requested year, so its cost scales with how many

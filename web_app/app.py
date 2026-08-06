@@ -1999,8 +1999,9 @@ def _save_runtime_sample(
     """Fold one measured run into the profile the interface quotes.
 
     The committed file ships a seed so a freshly built Space can quote a
-    duration immediately. Each hosted run replaces the oldest of the five
-    samples, so the seed is displaced as real measurements arrive.
+    duration immediately. Each hosted run replaces the oldest sample once
+    the window is full, so the seed is displaced as real measurements
+    arrive.
 
     A container's filesystem does not survive a rebuild, so samples written
     here last until the Space is rebuilt and then fall back to the committed
