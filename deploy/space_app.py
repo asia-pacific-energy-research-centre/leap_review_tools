@@ -18,7 +18,7 @@ except ImportError:
     def _zerogpu_startup_hook() -> None:
         return None
 
-from web_app.app import create_app
+from web_app.app import DASHBOARD_SERVE_ROOT, create_app
 
 
 demo = create_app()
@@ -29,6 +29,7 @@ if __name__ == "__main__":
     demo.launch(
         server_name=os.getenv("GRADIO_SERVER_NAME", "0.0.0.0"),
         server_port=int(os.getenv("GRADIO_SERVER_PORT", "7860")),
+        allowed_paths=[str(DASHBOARD_SERVE_ROOT)],
     )
 
 #%%
