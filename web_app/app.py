@@ -569,6 +569,29 @@ body, gradio-app {
   font-weight: 600 !important;
 }
 #clear-export:hover { background: var(--paper) !important; color: var(--ink) !important; }
+#export-actions { gap: 0.5rem; align-items: center; }
+/* The add-another picker is a file field, dressed to match the button it sits
+   beside so the pair reads as two related actions. */
+#add-export { border: 0 !important; background: transparent !important; min-width: 0 !important; }
+#add-export > label.float { display: none !important; }
+#add-export .file-preview-holder { display: none !important; }
+#add-export > button {
+  display: flex !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  padding: 0.35rem 0.7rem !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 5px !important;
+  background: #ffffff !important;
+  color: var(--muted) !important;
+  font-size: 0.78rem !important;
+  font-weight: 600 !important;
+  box-shadow: none !important;
+}
+#add-export > button:hover { background: var(--paper) !important; color: var(--ink) !important; }
+#add-export > button .wrap { min-height: 0 !important; height: auto !important; gap: 0.4rem !important; }
+#add-export > button .icon-wrap { display: none !important; }
 /* Vertical trim: the whole flow should read without hunting down the page. */
 /* Gradio wraps inputs in a `.form` div with a dark slate fill; inside our own
    panels that reads as a stray black box, so it is neutralised wherever it
@@ -803,16 +826,23 @@ APP_JS = """
     ['Drop File Here', ''],
     ['Click to Upload', 'Choose your LEAP Energy Balance export(s) (.xlsx)'],
   ];
-  const relabelUpload = () => {
-    const zone = document.querySelector('#balance-upload');
+  const relabel = (selector, wording) => {
+    const zone = document.querySelector(selector);
     if (!zone) return;
     const walker = document.createTreeWalker(zone, NodeFilter.SHOW_TEXT);
     while (walker.nextNode()) {
       const node = walker.currentNode;
       const text = node.textContent.trim();
-      const match = UPLOAD_WORDING.find((pair) => pair[0] === text);
+      const match = wording.find((pair) => pair[0] === text);
       if (match) node.textContent = match[1];
     }
+  };
+  const relabelUpload = () => {
+    relabel('#balance-upload', UPLOAD_WORDING);
+    relabel('#add-export', [
+      ['Drop File Here', ''],
+      ['Click to Upload', '+ Add another export'],
+    ]);
   };
   // Reflect the tick immediately; Gradio's own round trip is far too slow to
   // be the thing that paints a button press.
@@ -1380,7 +1410,33 @@ def update_runtime_notes(
     )
 
 
-def clear_uploaded_export() -> tuple[object, str, object, object, object, object]:
+def toggle_add_export(balance_export_workbook: object) -> object:
+    """Show the add-another picker only once something has been chosen."""
+    import gradio as gr
+
+    return gr.File(visible=bool(_uploaded_paths(balance_export_workbook)))
+
+
+def append_uploaded_exports(current: object, added: object) -> tuple[object, object]:
+    """Add files to the set already chosen, rather than replacing it.
+
+    A file already present is not added twice: uploads land in their own
+    temporary directory, so sameness is judged by name and size rather than
+    by path.
+    """
+    paths = _uploaded_paths(current)
+    seen = {(path.name, path.stat().st_size) for path in paths}
+    for path in _uploaded_paths(added):
+        key = (path.name, path.stat().st_size)
+        if key in seen:
+            continue
+        seen.add(key)
+        paths.append(path)
+    # Clearing the second picker lets the same file be added again later.
+    return [str(path) for path in paths], None
+
+
+def clear_uploaded_export() -> tuple[object, str, object, object, object, object, object]:
     """Drop the loaded export so a different one can be added.
 
     Gradio's own clear control is an unlabelled icon, which is easy to miss;
@@ -2587,12 +2643,24 @@ def create_app():
                     allow_custom_value=True,
                     elem_id="scenario-choice",
                 )
-            clear_export_button = gr.Button(
-                "Use a different export",
-                size="sm",
-                visible=False,
-                elem_id="clear-export",
-            )
+            with gr.Row(elem_id="export-actions"):
+                clear_export_button = gr.Button(
+                    "Use a different export",
+                    size="sm",
+                    visible=False,
+                    elem_id="clear-export",
+                )
+                # A second picker whose only job is to append: Gradio replaces
+                # the selection when a multi-file field is used again, so
+                # adding to a set otherwise means re-choosing all of it.
+                add_export = gr.File(
+                    label="Add another export",
+                    file_types=[".xlsx", ".xlsm"],
+                    type="filepath",
+                    file_count="multiple",
+                    visible=False,
+                    elem_id="add-export",
+                )
             gr.HTML(
                 "<p class='choose-label'>What should this run build?</p>"
             )
@@ -2749,7 +2817,18 @@ def create_app():
                 clear_export_button,
                 economy_choice,
                 scenario_choice,
+                add_export,
             ],
+        )
+        add_export.change(
+            fn=append_uploaded_exports,
+            inputs=[balance_export_workbook, add_export],
+            outputs=[balance_export_workbook, add_export],
+        )
+        balance_export_workbook.change(
+            fn=toggle_add_export,
+            inputs=balance_export_workbook,
+            outputs=add_export,
         )
         balance_export_workbook.change(
             fn=inspect_uploaded_export,
