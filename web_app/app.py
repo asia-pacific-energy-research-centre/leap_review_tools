@@ -1621,16 +1621,6 @@ def start_run(
     return job_id
 
 
-def describe_job(job_id: object) -> str:
-    """Return the worker's own progress line for a running job."""
-    job = _job_snapshot(str(job_id or ""))
-    if not job or job.get("state") != "running":
-        return ""
-    elapsed = int(time.time() - float(job.get("started") or time.time()))
-    minutes, seconds = divmod(elapsed, 60)
-    return f"{job.get('message') or 'Working.'} ({minutes}:{seconds:02d} elapsed)"
-
-
 def lock_run_button() -> object:
     """Show the run as under way and refuse a second press."""
     import gradio as gr
@@ -2414,7 +2404,9 @@ def poll_run(job_id: object, browser_archives: object):
         )
     if job.get("state") == "running":
         return (
-            gr.skip(), _status_html(describe_job(job_id)), gr.skip(), gr.skip(),
+            # No progress line while running: the calculator already shows
+            # CALCULATING and the elapsed clock, so this only repeated it.
+            gr.skip(), "", gr.skip(), gr.skip(),
             gr.skip(), gr.skip(), gr.skip(),
             gr.Timer(active=True),
             gr.Button("Running…", interactive=False),
