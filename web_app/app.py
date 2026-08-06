@@ -308,6 +308,7 @@ body, gradio-app {
   opacity: 1 !important;
   border-color: var(--line) !important;
 }
+#refresh-run { display: none !important; }
 #upload-row, #action-row, #download-row, #dashboard-controls { gap: 0.8rem; }
 #upload-row .gr-form { padding: 0.65rem 0.75rem; }
 .gradio-container input, .gradio-container textarea, .gradio-container select {
@@ -1214,6 +1215,32 @@ APP_JS = """
       }
     }, 500);
   };
+  // Ask the server where the run got to as soon as the tab is looked at
+  // again. Background tabs have their timers throttled, so without this the
+  // page can sit on a stale "running" for as long as the browser felt like
+  // sleeping. Only while a run is believed to be under way: idle presses
+  // would be answered, but they would be noise.
+  const installWakeRefresh = () => {
+    if (document.body.dataset.wakeRefreshBound === '1') return;
+    document.body.dataset.wakeRefreshBound = '1';
+    let lastAsked = 0;
+    const askNow = () => {
+      const button = runButtonEl();
+      const refresh = document.querySelector('#refresh-run');
+      if (!button || !refresh || !button.disabled) return;
+      const now = Date.now();
+      // A tab can fire visibility and focus together; one ask is enough.
+      if (now - lastAsked < 1000) return;
+      lastAsked = now;
+      (refresh.tagName === 'BUTTON' ? refresh : refresh.querySelector('button')).click();
+    };
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') askNow();
+    });
+    window.addEventListener('focus', askNow);
+    window.addEventListener('pageshow', askNow);
+  };
+  installWakeRefresh();
   installStopwatch();
   installWallpaperSwitch();
   window.setTimeout(() => { install(); syncOutputCards(); }, 150);
@@ -3166,6 +3193,16 @@ def create_app():
             storage_key="leap_balance_review_active_job",
         )
         run_timer = gr.Timer(3, active=False)
+        # A Gradio timer ticks in the browser, and a browser throttles or
+        # suspends timers in a tab that is not being looked at. So a run that
+        # finished while the user was in another window stays "running" on
+        # screen until the tab wakes up. This button is pressed by the page
+        # the moment it becomes visible again, asking the same question the
+        # timer asks, so returning to the tab shows the truth immediately.
+        # Rendered but hidden in CSS: a Gradio component with
+        # visible=False is absent from the page, and the script has to
+        # be able to press this one.
+        refresh_run = gr.Button("", elem_id="refresh-run")
         # What the last finished run produced, so returning to the page shows
         # it again instead of an empty results panel.
         last_run = gr.BrowserState(
@@ -3297,6 +3334,17 @@ def create_app():
             outputs=run_timer,
         )
         run_timer.tick(
+            fn=poll_run,
+            inputs=[active_job, browser_archives],
+            outputs=[
+                *run_outputs_list,
+                run_timer,
+                run_button,
+                active_job,
+                last_run,
+            ],
+        )
+        refresh_run.click(
             fn=poll_run,
             inputs=[active_job, browser_archives],
             outputs=[
