@@ -162,6 +162,15 @@ APP_CSS = """
   --table-odd-background-fill: #ffffff;
   --table-even-background-fill: #f4f7fb;
   --table-row-focus: #fff1e8;
+  --accordion-text-color: #173452;
+  --block-label-text-color: #173452;
+  --block-title-text-color: #173452;
+  --checkbox-label-text-color: #173452;
+  --checkbox-label-text-color-selected: #173452;
+  --table-text-color: #173452;
+  --error-text-color: #a8342a;
+  --button-secondary-text-color: #173452;
+  --button-secondary-text-color-hover: #173452;
   --loader-color: #e7672a;
   --body-background-fill: transparent;
   --body-text-color: #173452;
@@ -1424,17 +1433,12 @@ def update_runtime_notes(
     year: object,
     want_workbook: object,
     want_dashboard: object,
-    economy_choice: object = None,
+    balance_export_workbook: object = None,
 ) -> tuple[str, str]:
-    """Re-quote the estimates for the years and economies now selected."""
+    """Re-quote the estimates for the years typed and the economies uploaded."""
     profile = _hosted_runtime_profile()
     years = max(len(_requested_years(year)), 1)
-    selected = (
-        economy_choice
-        if isinstance(economy_choice, (list, tuple))
-        else ([economy_choice] if economy_choice else [])
-    )
-    economies = max(len([name for name in selected if str(name or "").strip()]), 1)
+    economies = max(len(group_by_economy(read_uploads(balance_export_workbook))), 1)
     return (
         _card_runtime_note_html(profile, "workbook", years=years),
         _calculator_html(
@@ -1531,8 +1535,6 @@ def start_run(
     year: object,
     economy_override: str,
     balance_export_workbook: object,
-    economy_choice: object,
-    scenario_choice: object,
     browser_archives: object,
 ) -> str:
     """Begin a build in the background and return its job id.
@@ -1567,8 +1569,8 @@ def start_run(
                 year,
                 economy_override,
                 kept,
-                economy_choice,
-                scenario_choice,
+                None,
+                None,
                 browser_archives,
                 progress=report,
             )
@@ -1847,7 +1849,7 @@ def _uploads_table(uploads: list[ExportUpload]) -> str:
 def inspect_uploaded_export(
     balance_export_workbook: object,
     year: object,
-) -> tuple[str, object, object, object, object, object, object, object]:
+) -> tuple[str, object, object, object, object, object]:
     """Read what every uploaded export declares and shape the run around it.
 
     One export behaves as before. Several switch the run to dashboard mode:
@@ -1866,8 +1868,6 @@ def inspect_uploaded_export(
             hidden_economy,
             gr.Textbox(),
             gr.Button(visible=False),
-            gr.Dropdown(choices=[], value=None, visible=False),
-            gr.Dropdown(choices=[], value=None, visible=False),
             gr.Checkbox(),
             gr.Checkbox(),
         )
@@ -1877,9 +1877,6 @@ def inspect_uploaded_export(
     multiple = len(uploads) > 1
     readable = [upload for upload in uploads if upload.ok]
     unnamed = [upload for upload in readable if not upload.economy]
-
-    first_economy = economies[0] if economies else None
-    scenario_choices = scenarios_for(uploads, first_economy) if first_economy else []
 
     # A workbook covers one economy and one scenario, so a multi-file upload
     # builds the dashboard instead. The card says so rather than silently
@@ -1899,8 +1896,6 @@ def inspect_uploaded_export(
             hidden_economy,
             gr.Textbox(),
             gr.Button(visible=True),
-            gr.Dropdown(choices=[], value=None, visible=False),
-            gr.Dropdown(choices=[], value=None, visible=False),
             workbook_update,
             dashboard_update,
         )
@@ -1915,8 +1910,10 @@ def inspect_uploaded_export(
         note = (
             f"{len(readable)} exports across {len(economies)} "
             f"{'economy' if len(economies) == 1 else 'economies'}. "
-            "Choose which one to render below. The review workbook covers a "
-            "single export, so it is unavailable for this upload."
+            f"A dashboard is built for "
+            f"{'that economy' if len(economies) == 1 else 'each of them'}. "
+            "The review workbook covers a single export, so it is unavailable "
+            "for this upload."
         )
         state = "ready" if not unnamed else "partial"
         return (
@@ -1929,18 +1926,6 @@ def inspect_uploaded_export(
             gr.Textbox(visible=bool(unnamed)),
             year_update,
             gr.Button(visible=True),
-            gr.Dropdown(
-                choices=economies,
-                value=economies,
-                visible=True,
-                interactive=True,
-            ),
-            gr.Dropdown(
-                choices=scenario_choices,
-                value=scenario_choices[0] if scenario_choices else None,
-                visible=len(scenario_choices) > 1,
-                interactive=True,
-            ),
             workbook_update,
             dashboard_update,
         )
@@ -1970,8 +1955,6 @@ def inspect_uploaded_export(
             gr.Textbox(visible=True),
             year_update,
             gr.Button(visible=True),
-            gr.Dropdown(choices=[], value=None, visible=False),
-            gr.Dropdown(choices=[], value=None, visible=False),
             workbook_update,
             gr.Checkbox(),
         )
@@ -1990,26 +1973,8 @@ def inspect_uploaded_export(
         hidden_economy,
         year_update,
         gr.Button(visible=True),
-        gr.Dropdown(choices=[], value=None, visible=False),
-        gr.Dropdown(choices=[], value=None, visible=False),
         workbook_update,
         gr.Checkbox(),
-    )
-
-
-def update_scenario_choices(
-    balance_export_workbook: object, economy: object
-) -> object:
-    """Offer only the scenarios present for the economy now selected."""
-    import gradio as gr
-
-    uploads = read_uploads(balance_export_workbook)
-    choices = scenarios_for(uploads, str(economy or ""))
-    return gr.Dropdown(
-        choices=choices,
-        value=choices[0] if choices else None,
-        visible=len(choices) > 1,
-        interactive=True,
     )
 
 
@@ -2659,26 +2624,6 @@ def create_app():
                 value=EXPORT_PROMPT_HTML,
                 elem_id="export-readout",
             )
-            with gr.Row(elem_id="selection-row"):
-                economy_choice = gr.Dropdown(
-                    label="Economies to render",
-                    multiselect=True,
-                    choices=[],
-                    value=None,
-                    visible=False,
-                    interactive=True,
-                    allow_custom_value=True,
-                    elem_id="economy-choice",
-                )
-                scenario_choice = gr.Dropdown(
-                    label="Scenario",
-                    choices=[],
-                    value=None,
-                    visible=False,
-                    interactive=True,
-                    allow_custom_value=True,
-                    elem_id="scenario-choice",
-                )
             with gr.Row(elem_id="export-actions"):
                 clear_export_button = gr.Button(
                     "Use a different export",
@@ -2838,10 +2783,10 @@ def create_app():
                     elem_id="saved-link",
                 )
 
-        for _control in (year, want_workbook, want_dashboard, economy_choice):
+        for _control in (year, want_workbook, want_dashboard, balance_export_workbook):
             _control.change(
                 fn=update_runtime_notes,
-                inputs=[year, want_workbook, want_dashboard, economy_choice],
+                inputs=[year, want_workbook, want_dashboard, balance_export_workbook],
                 outputs=[workbook_runtime_note, calculator_animation],
             )
         clear_export_button.click(
@@ -2851,8 +2796,6 @@ def create_app():
                 export_readout,
                 economy_override,
                 clear_export_button,
-                economy_choice,
-                scenario_choice,
                 add_export,
             ],
         )
@@ -2874,16 +2817,9 @@ def create_app():
                 economy_override,
                 year,
                 clear_export_button,
-                economy_choice,
-                scenario_choice,
                 want_workbook,
                 want_dashboard,
             ],
-        )
-        economy_choice.change(
-            fn=update_scenario_choices,
-            inputs=[balance_export_workbook, economy_choice],
-            outputs=scenario_choice,
         )
         # Starting a run hands the work to a background worker and remembers
         # its id in the browser, so closing the tab does not cancel the build
@@ -2908,8 +2844,6 @@ def create_app():
                 year,
                 economy_override,
                 balance_export_workbook,
-                economy_choice,
-                scenario_choice,
                 browser_archives,
             ],
             outputs=active_job,
