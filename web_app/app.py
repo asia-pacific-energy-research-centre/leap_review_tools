@@ -456,6 +456,11 @@ body, gradio-app {
 .upload-row.is-ok { border-left-color: #2f8f5b; }
 .upload-row.is-warn { border-left-color: #e0912f; }
 .upload-row.is-bad { border-left-color: #c0392b; }
+/* A repeat is not an error: it is set aside, and reads that way. */
+.upload-row.is-dupe { border-left-color: #97a9bd; background: #f4f7fb; }
+.upload-row.is-dupe strong { color: var(--muted); font-weight: 650; }
+.upload-duplicate { color: var(--muted); font-style: italic; }
+.readout-repeat { color: #8a6321; font-weight: 600; }
 .upload-row.is-bad .upload-error { grid-column: 2 / -1; color: #a8342a; }
 #selection-row { gap: 0.8rem; margin-top: 0.15rem; }
 /* A multi-file upload cannot produce a workbook, so the card says so by
@@ -1609,7 +1614,8 @@ def update_runtime_notes(
     """Re-quote the estimates for the years typed and the economies uploaded."""
     profile = _hosted_runtime_profile()
     years = max(len(_requested_years(year)), 1)
-    economies = max(len(group_by_economy(read_uploads(balance_export_workbook))), 1)
+    uploads = without_duplicates(read_uploads(balance_export_workbook))
+    economies = max(len(group_by_economy(uploads)), 1)
     return (
         _card_runtime_note_html(profile, "workbook", years=years),
         _calculator_html(
@@ -1998,11 +2004,64 @@ def scenarios_for(uploads: list[ExportUpload], economy: str) -> list[str]:
     return sorted(scenarios)
 
 
-def _uploads_table(uploads: list[ExportUpload]) -> str:
+def duplicate_uploads(uploads: list[ExportUpload]) -> dict[str, str]:
+    """Map each superseded upload to the earlier one it repeats.
+
+    Two files with different names can hold the same export. Nothing downstream
+    can tell them apart -- they declare one economy, one scenario and one year
+    range -- so the second is not a second export, it is the same one twice.
+    Rendering it again would only cost the wait, and quietly suggest the run
+    covered more ground than it did.
+
+    The earliest upload wins, so the copy added last is the one set aside,
+    which is the one the user just chose and can most easily reconsider.
+    """
+    first_seen: dict[tuple[str, str, tuple[int, ...]], ExportUpload] = {}
+    superseded: dict[str, str] = {}
+    for upload in sorted(uploads, key=_upload_added_at):
+        if not upload.ok:
+            continue
+        key = (upload.economy, upload.scenario, upload.years)
+        kept = first_seen.get(key)
+        if kept is None:
+            first_seen[key] = upload
+            continue
+        superseded[upload.path.name] = kept.path.name
+    return superseded
+
+
+def _upload_added_at(upload: ExportUpload) -> float:
+    """Return when an upload arrived, tolerating a file that has since gone."""
+    try:
+        return upload.path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def without_duplicates(uploads: list[ExportUpload]) -> list[ExportUpload]:
+    """Return the uploads a run should actually use."""
+    superseded = duplicate_uploads(uploads)
+    return [upload for upload in uploads if upload.path.name not in superseded]
+
+
+def _uploads_table(
+    uploads: list[ExportUpload], superseded: dict[str, str] | None = None
+) -> str:
     """Return one row per uploaded file, saying what was read from it."""
+    superseded = superseded or {}
     rows = []
     for upload in uploads:
         name = html.escape(upload.path.name)
+        repeats = superseded.get(upload.path.name)
+        if repeats:
+            detail = (
+                "<span class='upload-duplicate'>Same economy, scenario and "
+                f"years as {html.escape(repeats)} — not used</span>"
+            )
+            rows.append(
+                f"<li class='upload-row is-dupe'><strong>{name}</strong>{detail}</li>"
+            )
+            continue
         if upload.ok:
             span = (
                 f"{upload.years[0]}–{upload.years[-1]}"
@@ -2050,10 +2109,14 @@ def inspect_uploaded_export(
             gr.Checkbox(),
         )
 
-    grouped = group_by_economy(uploads)
+    # A repeat of an export already uploaded is set aside here, so the run is
+    # shaped by what it will actually build rather than by the file count.
+    superseded = duplicate_uploads(uploads)
+    effective = [upload for upload in uploads if upload.path.name not in superseded]
+    grouped = group_by_economy(effective)
     economies = list(grouped)
-    multiple = len(uploads) > 1
-    readable = [upload for upload in uploads if upload.ok]
+    multiple = len(effective) > 1
+    readable = [upload for upload in effective if upload.ok]
     unnamed = [upload for upload in readable if not upload.economy]
 
     # A workbook covers one economy and one scenario, so a multi-file upload
@@ -2063,7 +2126,7 @@ def inspect_uploaded_export(
     dashboard_update = gr.Checkbox(value=True)
 
     if not readable:
-        body = _uploads_table(uploads)
+        body = _uploads_table(uploads, superseded)
         return (
             _export_readout_html(
                 state="error",
@@ -2092,9 +2155,19 @@ def inspect_uploaded_export(
         year_update = gr.Textbox(value=", ".join(str(y) for y in default_years))
 
     if multiple:
+        ignored = ""
+        if superseded:
+            names = ", ".join(sorted(superseded))
+            ignored = (
+                f" {names} {'repeats' if len(superseded) == 1 else 'repeat'} an "
+                "export already added, so "
+                f"{'it is' if len(superseded) == 1 else 'they are'} not used."
+            )
         note = (
-            f"{len(readable)} exports across {len(economies)} "
-            f"{'economy' if len(economies) == 1 else 'economies'}. "
+            f"{len(readable)} "
+            f"{'export' if len(readable) == 1 else 'exports'} across "
+            f"{len(economies)} "
+            f"{'economy' if len(economies) == 1 else 'economies'}.{ignored} "
             f"A dashboard is built for "
             f"{'that economy' if len(economies) == 1 else 'each of them'}. "
             "The review workbook covers a single export, so it is unavailable "
@@ -2105,7 +2178,7 @@ def inspect_uploaded_export(
             _export_readout_html(
                 state=state,
                 label="Read from your exports",
-                body=_uploads_table(uploads) + f"<p>{html.escape(note)}</p>",
+                body=_uploads_table(uploads, superseded) + f"<p>{html.escape(note)}</p>",
                 multiple=True,
             ),
             gr.Textbox(visible=bool(unnamed)),
@@ -2118,6 +2191,16 @@ def inspect_uploaded_export(
     upload = readable[0]
     if not upload.ok:
         pass
+    # Two names for one export collapse to a single export, so this branch is
+    # reached with a file the user added and cannot see the fate of. Say so
+    # here, or the upload list shows two rows and the readout describes one.
+    repeats_note = ""
+    if superseded:
+        names = ", ".join(sorted(superseded))
+        repeats_note = (
+            f"<p class='readout-repeat'>{html.escape(names)} holds this same "
+            "export under another name, so it is not used.</p>"
+        )
     year_span = (
         f"{upload.years[0]}–{upload.years[-1]}"
         if len(upload.years) > 1
@@ -2131,7 +2214,7 @@ def inspect_uploaded_export(
             + "</div>"
             f"<p>The LEAP area is named “{html.escape(upload.area_name)}”, "
             "which does not match an APEC economy. Enter the economy code below "
-            "and everything else still comes from the export.</p>"
+            "and everything else still comes from the export.</p>" + repeats_note
         )
         return (
             _export_readout_html(
@@ -2151,10 +2234,14 @@ def inspect_uploaded_export(
         + _readout_chip("Years in this export", year_span)
         + "</div>"
         f"<p>LEAP area “{html.escape(upload.area_name)}”. Choose any "
-        "review year within this range.</p>"
+        "review year within this range.</p>" + repeats_note
     )
     return (
-        _export_readout_html(state="ready", label="Read from your export", body=body),
+        _export_readout_html(
+            state="partial" if superseded else "ready",
+            label="Read from your export",
+            body=body,
+        ),
         hidden_economy,
         year_update,
         gr.Button(visible=True),
@@ -2212,6 +2299,9 @@ def build_review_from_export(
         uploads = read_uploads(balance_export_workbook)
         if not uploads:
             raise ValueError("Please upload at least one LEAP Energy Balance export.")
+        # An export uploaded twice under two names is one export. Building it
+        # again would double the wait for a second copy of the same dashboard.
+        uploads = without_duplicates(uploads)
         unreadable = [upload for upload in uploads if not upload.ok]
         readable = [upload for upload in uploads if upload.ok]
         if not readable:

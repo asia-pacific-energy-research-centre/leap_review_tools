@@ -128,3 +128,39 @@ def test_two_scenario_dashboard_keeps_its_toggle_unpinned():
     # The renderer's own dashboard switcher points at folders this app does
     # not serve, so it stays hidden either way.
     assert ".dashboard-switcher { display:none" in page
+
+
+def test_same_export_under_two_names_is_used_once(tmp_path):
+    """Two names for one export are one export, not two."""
+    from web_app.app import ExportUpload, duplicate_uploads, without_duplicates
+
+    first = tmp_path / "prc.xlsx"
+    second = tmp_path / "prc 1.xlsx"
+    for path in (first, second):
+        path.write_bytes(b"x")
+    # The copy added last is the one set aside.
+    os.utime(first, (1_000, 1_000))
+    os.utime(second, (2_000, 2_000))
+    uploads = [
+        ExportUpload(path=first, economy="05_PRC", scenario="Target", years=(2022, 2060)),
+        ExportUpload(path=second, economy="05_PRC", scenario="Target", years=(2022, 2060)),
+    ]
+
+    assert duplicate_uploads(uploads) == {"prc 1.xlsx": "prc.xlsx"}
+    assert [upload.path.name for upload in without_duplicates(uploads)] == ["prc.xlsx"]
+
+
+def test_a_second_scenario_is_not_a_duplicate(tmp_path):
+    """Same economy and years, different scenario: both are wanted."""
+    from web_app.app import ExportUpload, duplicate_uploads
+
+    reference = tmp_path / "ref.xlsx"
+    target = tmp_path / "tgt.xlsx"
+    for path in (reference, target):
+        path.write_bytes(b"x")
+    uploads = [
+        ExportUpload(path=reference, economy="05_PRC", scenario="Reference", years=(2022,)),
+        ExportUpload(path=target, economy="05_PRC", scenario="Target", years=(2022,)),
+    ]
+
+    assert duplicate_uploads(uploads) == {}
