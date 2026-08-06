@@ -184,7 +184,7 @@ APP_CSS = """
   max-width: 1180px !important;
   width: calc(100% - 2rem) !important;
   margin: 0 auto !important;
-  padding: 0.15rem 0 0.5rem !important;
+  padding: 0.15rem 0 0.1rem !important;
   color: #173452 !important;
   font: 15px/1.55 Inter, "Segoe UI", Arial, sans-serif !important;
 }
@@ -296,6 +296,16 @@ body, gradio-app {
   padding-top: 0 !important;
   padding-bottom: 0 !important;
 }
+/* Gradio flashes a block's opacity between 0.5 and 1 twice a second while it
+   waits for an update. The run timer ticks every three seconds, so panels that
+   are not changing at all blinked for the whole run. The calculator already
+   says a run is under way, so nothing is lost by holding these still. */
+.gradio-container .pending,
+.gradio-container .generating {
+  animation: none !important;
+  opacity: 1 !important;
+  border-color: var(--line) !important;
+}
 #upload-row, #action-row, #download-row, #dashboard-controls { gap: 0.8rem; }
 #upload-row .gr-form { padding: 0.65rem 0.75rem; }
 .gradio-container input, .gradio-container textarea, .gradio-container select {
@@ -323,7 +333,10 @@ body, gradio-app {
    fillable app and the block wrapper each add their own -- and spaces every
    top-level block by 16px. Together that was 34px of empty page before the
    banner and 62px between it and the first card. */
-.gradio-container .app.fillable { padding: 0.25rem !important; }
+.gradio-container .app.fillable { padding: 0.25rem 0.25rem 0 !important; }
+/* Gradio's own footer sits below the last card and is the last of the empty
+   space at the bottom of the page. */
+.gradio-container footer { margin: 0 !important; padding: 0.1rem 0 0 !important; }
 .gradio-container .contain > * { gap: 0.5rem !important; }
 .html-container:has(#app-hero) { padding: 0 !important; }
 #upload-row { align-items: center; }
@@ -401,7 +414,7 @@ body, gradio-app {
   margin-top: 0.2rem;
 }
 .export-readout {
-  padding: 0.45rem 0.7rem;
+  padding: 0.35rem 0.65rem;
   border: 1px solid #c4d2e0;
   border-left-width: 4px;
   border-radius: 3px;
@@ -483,7 +496,7 @@ body, gradio-app {
 /* Every disclosure on the page says what opening it does and puts the
    affordance on the left, where the label is read from. */
 #workbook-note, #saved-reviews {
-  margin-top: 0.2rem;
+  margin-top: 0.1rem;
   border: 1px solid var(--line) !important;
   border-radius: 6px !important;
   background: #ffffff !important;
@@ -493,7 +506,7 @@ body, gradio-app {
   display: flex !important;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.45rem 0.85rem !important;
+  padding: 0.3rem 0.8rem !important;
   color: var(--ink) !important;
   font-weight: 700;
   background: var(--paper) !important;
@@ -524,7 +537,8 @@ body, gradio-app {
 #workbook-note > div:last-child,
 #saved-reviews > div:last-child { padding: 0.9rem 0.85rem !important; }
 #technical-details { border-radius: 3px !important; border-color: var(--line) !important; }
-#technical-details > button { color: #405a73 !important; font-weight: 650; background: #f2f6fa !important; }
+#technical-details > button { color: #405a73 !important; font-weight: 650;
+  padding: 0.3rem 0.8rem !important; background: #f2f6fa !important; }
 #esto-note, #results-note {
   margin: 0;
   padding: 0.65rem 0.8rem;
@@ -557,7 +571,7 @@ body, gradio-app {
 }
 #run-status textarea, #run-status input { font-size: 0.88rem; }
 #results-empty {
-  padding: 0.7rem 1rem;
+  padding: 0.55rem 1rem;
   border: 1px dashed var(--line);
   border-radius: 6px;
   background: var(--paper);
@@ -579,6 +593,15 @@ body, gradio-app {
   text-decoration: none !important;
 }
 .result-link:hover { background: #d45a20; }
+/* Sized in ems so the mark tracks the label it sits beside, and nudged down
+   a hair because an arrow reads high against a capital letter. */
+.result-link .link-icon {
+  width: 1.05em;
+  height: 1.05em;
+  flex: 0 0 auto;
+  opacity: 0.9;
+  transform: translateY(0.5px);
+}
 .result-link.is-primary { font-size: 1.02rem; padding: 14px 24px; }
 .result-hint { color: var(--muted); font-size: 0.84rem; }
 .result-hint.is-warning { color: #a8342a; font-weight: 600; }
@@ -610,7 +633,20 @@ body, gradio-app {
 }
 #download-row > div > label svg { display: none !important; }
 #results-card .result-links { margin-bottom: 0.25rem; }
-#clear-dashboards { align-self: end; max-width: 210px; }
+#clear-dashboards {
+  align-self: end;
+  max-width: 210px;
+  border: 1px solid var(--line) !important;
+  background: #ffffff !important;
+  background-image: none !important;
+  color: var(--ink) !important;
+  font-weight: 650;
+  box-shadow: none !important;
+}
+#clear-dashboards:hover {
+  border-color: #b9c9dc !important;
+  background: #f4f7fb !important;
+}
 /* Gradio's own clear is an unlabelled icon, so the action is offered in
    words as well, kept quiet so it cannot compete with Run. */
 #clear-export {
@@ -746,7 +782,7 @@ body, gradio-app {
    this Chromium does not re-evaluate `:has()` when `:checked` flips, so the
    card would stay stuck in its previous state.) */
 .choose-label {
-  margin: 0.15rem 0 0.05rem;
+  margin: 0.05rem 0 0;
   color: var(--ink);
   font-size: 0.86rem;
   font-weight: 700;
@@ -826,6 +862,24 @@ body, gradio-app {
   pointer-events: none;
 }
 #year-input .block, #year-input { padding: 0 !important; }
+/* The year field sat in a pale hairline box that read as a label rather than
+   an input, so it was easy to miss that anything was wanted here. */
+#year-input textarea, #year-input input {
+  border: 2px solid var(--line) !important;
+  border-radius: 7px !important;
+  padding: 0.5rem 0.65rem !important;
+  background: #ffffff !important;
+  font-size: 1rem !important;
+  font-variant-numeric: tabular-nums;
+  overflow-y: hidden;
+  resize: none;
+}
+#year-input textarea:hover, #year-input input:hover { border-color: #9fb6cf !important; }
+#year-input textarea:focus, #year-input input:focus {
+  border-color: var(--orange) !important;
+  box-shadow: 0 0 0 3px rgba(231, 103, 42, 0.18) !important;
+}
+#year-input textarea::placeholder, #year-input input::placeholder { color: #93a7bd !important; }
 #calculator-animation { display: none; align-items: center; gap: 0.65rem;
   min-height: 62px; margin: 0.25rem 0; padding: 0.55rem 0.8rem;
   border-radius: 3px; background: linear-gradient(90deg, #fff4ed, #eef4fa);
@@ -1791,13 +1845,15 @@ def _result_links_html(
             parts.append(
                 f"<a class='result-link is-primary' href='{html.escape(link['url'])}' "
                 f"target='_blank' rel='noopener'>{html.escape(label)} "
-                "<span aria-hidden='true'>↗</span></a>"
+                + EXTERNAL_LINK_ICON
+                + "</a>"
             )
     elif dashboard_url:
         parts.append(
             f"<a class='result-link is-primary' href='{html.escape(dashboard_url)}' "
             "target='_blank' rel='noopener'>Open the dashboard "
-            "<span aria-hidden='true'>↗</span></a>"
+            + EXTERNAL_LINK_ICON
+            + "</a>"
         )
     elif wants_dashboard:
         reason = dashboard_error or "No dashboard was generated for this run."
@@ -1816,12 +1872,22 @@ def _result_links_html(
     return f"<div class='result-links'>{''.join(parts)}</div>"
 
 
+# An "opens in a new tab" mark, drawn rather than typed: the arrow character
+# rendered at a different weight and baseline from the label beside it.
+EXTERNAL_LINK_ICON = (
+    "<svg class='link-icon' viewBox='0 0 20 20' aria-hidden='true' "
+    "focusable='false' fill='none' stroke='currentColor' stroke-width='1.7' "
+    "stroke-linecap='round' stroke-linejoin='round'>"
+    "<path d='M8 4H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-3'/>"
+    "<path d='M12 3h5v5'/><path d='M17 3l-7 7'/></svg>"
+)
+
+
 EXPORT_PROMPT_HTML = (
     "<div class='export-readout is-waiting'>"
     "<span class='readout-label'>Waiting for your export</span>"
-    "<p>Add one workbook above, or several at once, and we will read the "
-    "economy and scenario straight out of each. Several exports build a "
-    "dashboard; a single export can also build the review workbook.</p>"
+    "<p>Add one or several above; the economy and scenario are read from "
+    "each. One export also builds the workbook.</p>"
     "</div>"
 )
 
@@ -2009,11 +2075,18 @@ def inspect_uploaded_export(
             dashboard_update,
         )
 
+    # The export's own base year, and the one after it: the base year shows
+    # whether the balance starts right, and the next projection year shows
+    # whether it stays right. A year the user typed is only replaced when this
+    # upload cannot serve it.
     all_years = sorted({year for upload in readable for year in upload.years})
     requested = _requested_years(year)
     year_update = gr.Textbox()
     if all_years and (not requested or set(requested) - set(all_years)):
-        year_update = gr.Textbox(value=str(all_years[0]))
+        default_years = [all_years[0]]
+        if len(all_years) > 1:
+            default_years.append(all_years[1])
+        year_update = gr.Textbox(value=", ".join(str(y) for y in default_years))
 
     if multiple:
         note = (
@@ -2691,7 +2764,7 @@ def select_dashboard_archive(
     return (
         "<div class='result-links'>"
         f"<a class='result-link' href='{html.escape(url)}' target='_blank' "
-        "rel='noopener'>Open this saved dashboard <span aria-hidden='true'>↗</span></a>"
+        "rel='noopener'>Open this saved dashboard " + EXTERNAL_LINK_ICON + "</a>"
         "</div>"
     )
 
@@ -2800,7 +2873,7 @@ def create_app():
                     )
                     year = gr.Textbox(
                         label="Which year(s) should the workbook review?",
-                        value="2022",
+                        value="",
                         placeholder="2022 or 2022, 2030, 2040",
                         info="Separate multiple years with commas.",
                         elem_id="year-input",
