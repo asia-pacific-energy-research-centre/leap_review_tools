@@ -61,6 +61,29 @@ committed source.
 
 Set `LEAP_RUNTIME_ROOT` or `LEAP_SOURCE_PARENT` if either location differs.
 
+### Never edit `runtime/`
+
+`runtime/` is a copy. The next refresh rebuilds it from the three source
+repositories, so a change typed into it directly survives until then and is
+lost without a trace — the deployed app quietly loses a fix and nothing says
+why. This has happened: a fix for hosted logging was committed to the deployed
+copy of `portable_release/runtime.py` and did not exist in
+`leap_initialisation` at all. It was caught by chance while diffing before a
+deploy.
+
+Fix it in the source repository, commit there, then refresh. To check that
+nothing has drifted — before a deploy, and after pulling anyone else's work
+into the source repositories:
+
+```bash
+python scripts/check_runtime_is_generated.py
+python scripts/check_runtime_is_generated.py --runtime ../leap_review_web_app/runtime
+```
+
+It names every runtime file that differs from its source. A difference means
+either an edit that is about to be discarded, or a source repository that has
+moved on since the last refresh; the output says how to tell them apart.
+
 ## Publishing
 
 The Hugging Face Space is a deployment copy of this repository, not a live
