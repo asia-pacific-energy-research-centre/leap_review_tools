@@ -412,7 +412,8 @@ body, gradio-app {
 /* The workbooks and the archive are the point of a finished run, and their
    download sat as a faint arrow after the file size -- easy to read as a
    label rather than something to press. In the results card it is a pill. */
-#download-row table.file-preview td.download a {
+#download-row table.file-preview td.download a,
+#balance-upload table.file-preview td.download a {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -424,16 +425,19 @@ body, gradio-app {
   text-decoration: none !important;
   white-space: nowrap;
 }
-#download-row table.file-preview td.download a:hover {
+#download-row table.file-preview td.download a:hover,
+#balance-upload table.file-preview td.download a:hover {
   background: var(--orange);
   color: #ffffff !important;
 }
-#download-row table.file-preview td.download a .download-icon {
+#download-row table.file-preview td.download a .download-icon,
+#balance-upload table.file-preview td.download a .download-icon {
   width: 1.3em;
   height: 1.3em;
   flex: 0 0 auto;
 }
-#download-row table.file-preview td.download { text-align: right; }
+#download-row table.file-preview td.download,
+#balance-upload table.file-preview td.download { text-align: right; }
 /* Gradio floats an unlabelled upload and clear icon above a loaded file.
    Both actions are offered as named buttons below, so the icons are only a
    second, more cryptic way to do the same thing. */
@@ -738,14 +742,26 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
 #add-export > label.float { display: none !important; }
 #add-export .file-preview-holder { display: none !important; }
 /* The stand-in remove cell matches the one Gradio draws for several files. */
-#balance-upload td[data-single-remove] {
-  width: 2rem;
-  color: var(--muted) !important;
+#balance-upload td[data-single-remove],
+#balance-upload table.file-preview td:last-child:not(.filename):not(.download) {
+  width: 3rem;
+  padding-left: 0.9rem !important;
+  color: #8ba0b6 !important;
+  font-size: 1.35rem !important;
+  font-weight: 400 !important;
+  line-height: 1 !important;
   text-align: center;
   cursor: pointer;
   user-select: none;
 }
-#balance-upload td[data-single-remove]:hover { color: #a8342a !important; }
+/* Visible as a control, but it has to be aimed at: the ring only fills on
+   hover, and the cell is held away from the download beside it. */
+#balance-upload td[data-single-remove]:hover,
+#balance-upload table.file-preview td:last-child:not(.filename):not(.download):hover {
+  color: #ffffff !important;
+  background: #c0392b;
+  border-radius: 4px;
+}
 #add-export > button {
   display: inline-flex !important;
   align-items: center;
@@ -1077,15 +1093,28 @@ APP_JS = """
     if (!holder || !clear) return;
     const rows = [...holder.querySelectorAll('tr')]
       .filter((row) => row.querySelector('.filename'));
-    if (rows.length !== 1) return;
+    const ourCells = [...holder.querySelectorAll('[data-single-remove]')];
+    // A remove cell Gradio drew: any cell that is neither the name, nor the
+    // download, nor the one we added. Testing the cell count instead would
+    // count our own cell as Gradio's and take it straight back off again.
+    const gradioRemoveCell = (row) => [...row.children].find((cell) =>
+      !cell.classList.contains('filename')
+      && !cell.classList.contains('download')
+      && !cell.dataset.singleRemove);
+    // Several files: Gradio draws its own on every row, so ours is spare.
+    // This is what left two crosses side by side after a second export.
+    if (rows.length !== 1 || gradioRemoveCell(rows[0])) {
+      ourCells.forEach((cell) => cell.remove());
+      return;
+    }
     const row = rows[0];
     if (row.querySelector('[data-single-remove]')) return;
-    if (row.children.length > 2) return;
     const cell = document.createElement('td');
     cell.dataset.singleRemove = '1';
     cell.textContent = '×';
     cell.title = 'Remove this export';
     cell.setAttribute('role', 'button');
+    cell.setAttribute('aria-label', 'Remove this export');
     cell.tabIndex = 0;
     const fire = () => { const b = clear.tagName === 'BUTTON' ? clear : clear.querySelector('button'); if (b) b.click(); };
     cell.addEventListener('click', fire);
@@ -1102,7 +1131,7 @@ APP_JS = """
     'stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
     '<path d="M10 3v9"/><path d="M6 9l4 4 4-4"/><path d="M3.5 15.5v1A1.5 1.5 0 0 0 5 18h10a1.5 1.5 0 0 0 1.5-1.5v-1"/></svg>';
   const drawDownloadIcons = () => {
-    document.querySelectorAll('#download-row td.download a').forEach((link) => {
+    document.querySelectorAll('#download-row td.download a, #balance-upload td.download a').forEach((link) => {
       if (link.dataset.iconDrawn === '1') return;
       link.dataset.iconDrawn = '1';
       const label = (link.textContent || '').replace(/[↓⇣⬇️]/g, '').trim();
