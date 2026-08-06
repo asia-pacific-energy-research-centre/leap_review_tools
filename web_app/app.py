@@ -408,6 +408,31 @@ body, gradio-app {
   font-size: 0.83rem !important;
 }
 .gradio-container table.file-preview a { color: var(--orange) !important; }
+/* The workbooks and the archive are the point of a finished run, and their
+   download sat as a faint arrow after the file size -- easy to read as a
+   label rather than something to press. In the results card it is a pill. */
+#download-row table.file-preview td.download a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.75rem;
+  border: 2px solid var(--orange) !important;
+  border-radius: 999px;
+  background: #fff6f1;
+  font-weight: 700;
+  text-decoration: none !important;
+  white-space: nowrap;
+}
+#download-row table.file-preview td.download a:hover {
+  background: var(--orange);
+  color: #ffffff !important;
+}
+#download-row table.file-preview td.download a .download-icon {
+  width: 1.3em;
+  height: 1.3em;
+  flex: 0 0 auto;
+}
+#download-row table.file-preview td.download { text-align: right; }
 /* Gradio floats an unlabelled upload and clear icon above a loaded file.
    Both actions are offered as named buttons below, so the icons are only a
    second, more cryptic way to do the same thing. */
@@ -1068,10 +1093,28 @@ APP_JS = """
     });
     row.appendChild(cell);
   };
+  // Gradio ends each download link with a small arrow character, which sits
+  // at whatever weight the font gives it. These are the files a run exists to
+  // produce, so the mark is drawn instead, at the size of the text beside it.
+  const DOWNLOAD_ICON =
+    '<svg class="download-icon" viewBox="0 0 20 20" aria-hidden="true" fill="none" ' +
+    'stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M10 3v9"/><path d="M6 9l4 4 4-4"/><path d="M3.5 15.5v1A1.5 1.5 0 0 0 5 18h10a1.5 1.5 0 0 0 1.5-1.5v-1"/></svg>';
+  const drawDownloadIcons = () => {
+    document.querySelectorAll('#download-row td.download a').forEach((link) => {
+      if (link.dataset.iconDrawn === '1') return;
+      link.dataset.iconDrawn = '1';
+      const label = (link.textContent || '').replace(/[↓⇣⬇️]/g, '').trim();
+      link.textContent = label;
+      link.insertAdjacentHTML('beforeend', DOWNLOAD_ICON);
+      if (!link.title) link.title = 'Download ' + label;
+    });
+  };
   const install = () => {
     relabelUpload();
     placeGuideLaunch();
     addSingleFileRemove();
+    drawDownloadIcons();
     const button = runButtonEl();
     const animation = document.querySelector('#calculator-animation');
     const status = document.querySelector('#run-status textarea, #run-status input');
