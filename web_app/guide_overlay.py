@@ -42,6 +42,15 @@ GUIDE_HTML = f"""
 
 
 GUIDE_CSS = """
+/* Every part of the overlay is fixed-position, so the block Gradio wraps them
+   in should take no room in the page flow. Left alone it reserved 20px, which
+   with the surrounding gaps opened a 36px hole under the banner. */
+#guide-overlay {
+  height: 0 !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+}
 #leap-guide-launch {
   position: fixed; right: 1.15rem; bottom: 1.15rem; z-index: 40;
   border: 0; border-radius: 999px; padding: .7rem 1rem;

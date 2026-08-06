@@ -232,7 +232,11 @@ def format_runtime_note(
     if per_year is not None and process_group in YEAR_SCALED_GROUPS:
         note += f" Each extra year adds about {format_duration(per_year)}."
     if per_economy is not None:
-        note += f" Each extra economy adds about {format_duration(per_economy)}."
+        note += (
+            f" Each extra economy adds about {format_duration(per_economy)}; "
+            "extra scenarios for the same economy are rendered in the same pass, "
+            "so they add far less."
+        )
     return note
 
 

@@ -184,7 +184,7 @@ APP_CSS = """
   max-width: 1180px !important;
   width: calc(100% - 2rem) !important;
   margin: 0 auto !important;
-  padding: 0.5rem 0 1.2rem !important;
+  padding: 0.15rem 0 0.5rem !important;
   color: #173452 !important;
   font: 15px/1.55 Inter, "Segoe UI", Arial, sans-serif !important;
 }
@@ -319,6 +319,13 @@ body, gradio-app {
   color: var(--ink) !important;
   font-weight: 700 !important;
 }
+/* Gradio stacks its own frame paddings above the banner -- the container, the
+   fillable app and the block wrapper each add their own -- and spaces every
+   top-level block by 16px. Together that was 34px of empty page before the
+   banner and 62px between it and the first card. */
+.gradio-container .app.fillable { padding: 0.25rem !important; }
+.gradio-container .contain > * { gap: 0.5rem !important; }
+.html-container:has(#app-hero) { padding: 0 !important; }
 #upload-row { align-items: center; }
 #upload-card .step-heading, #results-card .step-heading { margin: 0 0 0.2rem; }
 #upload-card .step-heading p, #results-card .step-heading p { font-size: 0.8rem; }
@@ -2313,9 +2320,15 @@ def build_review_from_export(
         # Only successful runs are recorded, so a failure cannot drag the
         # quoted duration around.
         year_count = len(requested_years) or None
+        # The dashboard clock covers every economy rendered, but the quote
+        # multiplies its average by the economy count. Recording the total
+        # would count them twice, so what is stored is the cost of one.
+        rendered_count = max(len([d for d in dashboards if not d.get("error")]), 1)
         for group, measured in runtime_seconds.items():
             if measured is None:
                 continue
+            if group == "dashboard":
+                measured = round(measured / rendered_count, 1)
             # "full run" means both halves; recording a workbook-only or
             # dashboard-only run against it would understate the real total.
             if group == "full_run" and not (wants_workbook and wants_dashboard):
