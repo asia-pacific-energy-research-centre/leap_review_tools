@@ -29,6 +29,7 @@ from uuid import uuid4
 from web_app.guide_overlay import GUIDE_CSS, GUIDE_HTML, GUIDE_JS
 from web_app.runtime_profile import (
     estimate_runtime,
+    format_duration,
     format_runtime_note,
     load_runtime_profile,
     record_runtime_sample,
@@ -1542,7 +1543,9 @@ def _run_status_line(
         for label, key in (("workbook", "workbook"), ("dashboard", "dashboard")):
             seconds = runtime_seconds.get(key)
             if seconds is not None:
-                measured.append(f"{label}: {seconds:.1f}s")
+                # Minutes and seconds: "159.5s" is a number to convert before
+                # it means anything, and the tenth was never worth reading.
+                measured.append(f"{label}: {format_duration(seconds)}")
         if measured:
             status += " Runtime — " + ", ".join(measured) + "."
     return status
