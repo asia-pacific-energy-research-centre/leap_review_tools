@@ -196,3 +196,19 @@ def test_the_notice_is_not_stacked_by_a_second_run():
     twice = lock_run_button(once)[1]
 
     assert twice.count("superseded-note") == 1
+
+
+def test_clearing_the_export_returns_one_value_per_wired_output():
+    """The click handler is wired to five outputs and must return five.
+
+    Returning more made Gradio raise, so the button that clears the export was
+    the one control on the page that could not be pressed.
+    """
+    from web_app.app import clear_uploaded_export
+
+    values = clear_uploaded_export()
+
+    assert len(values) == 5
+    # The file field is emptied and the prompt comes back.
+    assert values[0] is None
+    assert "export-readout" in values[1]

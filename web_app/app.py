@@ -710,6 +710,15 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
 #add-export > button .wrap { padding: 0 !important; min-height: 0 !important; height: auto !important; }
 #add-export > label.float { display: none !important; }
 #add-export .file-preview-holder { display: none !important; }
+/* The stand-in remove cell matches the one Gradio draws for several files. */
+#balance-upload td[data-single-remove] {
+  width: 2rem;
+  color: var(--muted) !important;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+}
+#balance-upload td[data-single-remove]:hover { color: #a8342a !important; }
 #add-export > button {
   display: inline-flex !important;
   align-items: center;
@@ -1030,9 +1039,38 @@ APP_JS = """
     const launch = document.querySelector('#leap-guide-launch');
     if (hero && launch && launch.parentElement !== hero) hero.appendChild(launch);
   };
+  // Gradio draws a remove cell on each file row only when more than one file
+  // is loaded, so a single export could be replaced but not removed, and the
+  // row looked unlike the rows beside it a moment earlier. Removing the only
+  // export is exactly what the clear button does, so the cell is added here
+  // and pointed at it.
+  const addSingleFileRemove = () => {
+    const holder = document.querySelector('#balance-upload');
+    const clear = document.querySelector('#clear-export');
+    if (!holder || !clear) return;
+    const rows = [...holder.querySelectorAll('tr')]
+      .filter((row) => row.querySelector('.filename'));
+    if (rows.length !== 1) return;
+    const row = rows[0];
+    if (row.querySelector('[data-single-remove]')) return;
+    if (row.children.length > 2) return;
+    const cell = document.createElement('td');
+    cell.dataset.singleRemove = '1';
+    cell.textContent = '×';
+    cell.title = 'Remove this export';
+    cell.setAttribute('role', 'button');
+    cell.tabIndex = 0;
+    const fire = () => { const b = clear.tagName === 'BUTTON' ? clear : clear.querySelector('button'); if (b) b.click(); };
+    cell.addEventListener('click', fire);
+    cell.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fire(); }
+    });
+    row.appendChild(cell);
+  };
   const install = () => {
     relabelUpload();
     placeGuideLaunch();
+    addSingleFileRemove();
     const button = runButtonEl();
     const animation = document.querySelector('#calculator-animation');
     const status = document.querySelector('#run-status textarea, #run-status input');
@@ -1671,12 +1709,18 @@ def append_uploaded_exports(current: object, added: object) -> tuple[object, obj
     return [str(path) for path in paths], None
 
 
-def clear_uploaded_export() -> tuple[object, str, object, object, object, object, object]:
+def clear_uploaded_export() -> tuple[object, str, object, object, object]:
     """Drop the loaded export so a different one can be added.
 
     Gradio's own clear control is an unlabelled icon, which is easy to miss;
     this is the same action said plainly. Results from a finished run are left
     alone, because those files are still valid and worth keeping.
+
+    One value per wired output, no more: the two trailing dropdowns this used
+    to return were the economy and scenario pickers, removed when the run
+    started rendering every economy provided. Gradio raised on the extras
+    rather than ignoring them, so the button that clears the export was the
+    one control that could not be pressed.
     """
     import gradio as gr
 
@@ -1685,8 +1729,7 @@ def clear_uploaded_export() -> tuple[object, str, object, object, object, object
         EXPORT_PROMPT_HTML,
         gr.Textbox(visible=False, value=""),
         gr.Button(visible=False),
-        gr.Dropdown(choices=[], value=None, visible=False),
-        gr.Dropdown(choices=[], value=None, visible=False),
+        gr.File(visible=False),
     )
 
 
@@ -2246,11 +2289,8 @@ def inspect_uploaded_export(
     )
     if not upload.economy:
         body = (
-            "<div class='readout-chips'>"
-            + _readout_chip("Scenario", upload.scenario)
-            + _readout_chip("Years in this export", year_span)
-            + "</div>"
-            f"<p>The LEAP area is named “{html.escape(upload.area_name)}”, "
+            _uploads_table(uploads, superseded)
+            + f"<p>The LEAP area is named “{html.escape(upload.area_name)}”, "
             "which does not match an APEC economy. Enter the economy code below "
             "and everything else still comes from the export.</p>" + repeats_note
         )
@@ -2266,12 +2306,8 @@ def inspect_uploaded_export(
         )
 
     body = (
-        "<div class='readout-chips'>"
-        + _readout_chip("Economy", upload.economy)
-        + _readout_chip("Scenario", upload.scenario)
-        + _readout_chip("Years in this export", year_span)
-        + "</div>"
-        f"<p>LEAP area “{html.escape(upload.area_name)}”. Choose any "
+        _uploads_table(uploads, superseded)
+        + f"<p>LEAP area “{html.escape(upload.area_name)}”. Choose any "
         "review year within this range.</p>" + repeats_note
     )
     return (
