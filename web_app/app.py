@@ -461,6 +461,23 @@ body, gradio-app {
 .upload-row.is-dupe strong { color: var(--muted); font-weight: 650; }
 .upload-duplicate { color: var(--muted); font-style: italic; }
 .readout-repeat { color: #8a6321; font-weight: 600; }
+.results-superseded { opacity: 0.5; }
+.results-superseded .superseded-note {
+  margin: 0 0 0.5rem;
+  color: #8a6321;
+  font-weight: 700;
+  font-size: 0.84rem;
+  opacity: 1;
+}
+/* Nothing in the results card should ever animate. Gradio pulses a block's
+   opacity while an update is pending, and the run timer ticks every three
+   seconds, so a finished run's links blinked for the whole of the next one. */
+#results-card, #results-card *, #result-links, #result-links * {
+  animation: none !important;
+}
+/* The files below the links belong to the previous run too, so they fade with
+   it. The class is set by the script that already watches the run button. */
+body.run-active #download-row, body.run-active #output { opacity: 0.5; }
 .upload-row.is-bad .upload-error { grid-column: 2 / -1; color: #a8342a; }
 #selection-row { gap: 0.8rem; margin-top: 0.15rem; }
 /* A multi-file upload cannot produce a workbook, so the card says so by
@@ -1075,6 +1092,7 @@ APP_JS = """
       const step = host.querySelector('.calc-step');
       const running = button.disabled;
       host.classList.toggle('is-running', running);
+      document.body.classList.toggle('run-active', running);
       if (step) {
         const announced = document.querySelector('#run-status .is-step');
         let text = idleCaption;
@@ -1768,11 +1786,31 @@ def start_run(
     return job_id
 
 
-def lock_run_button() -> object:
-    """Show the run as under way and refuse a second press."""
+def superseded_results_html(current: object) -> str:
+    """Mark results still on screen as belonging to the run being replaced.
+
+    A finished run's links stay put while the next one works, and a dashboard
+    link that opens is easily read as this run having finished. The panel says
+    whose results these are instead.
+    """
+    text = str(current or "").strip()
+    if not text or "results-empty" in text or "results-superseded" in text:
+        return text
+    return (
+        "<div class='results-superseded'>"
+        "<p class='superseded-note'>A new run is under way. These are the "
+        "results of your previous run, and will be replaced when it finishes."
+        "</p>" + text + "</div>"
+    )
+
+
+def lock_run_button(result_links: object = "") -> tuple[object, str]:
+    """Show the run as under way, and disown the results it will replace."""
     import gradio as gr
 
-    return gr.Button("Running…", interactive=False)
+    return gr.Button("Running…", interactive=False), superseded_results_html(
+        result_links
+    )
 
 
 def release_run_button() -> object:
@@ -3147,7 +3185,8 @@ def create_app():
         ]
         run_button.click(
             fn=lock_run_button,
-            outputs=run_button,
+            inputs=result_links,
+            outputs=[run_button, result_links],
         ).then(
             fn=start_run,
             inputs=[

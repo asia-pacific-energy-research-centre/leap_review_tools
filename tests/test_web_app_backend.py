@@ -164,3 +164,35 @@ def test_a_second_scenario_is_not_a_duplicate(tmp_path):
     ]
 
     assert duplicate_uploads(uploads) == {}
+
+
+def test_previous_results_are_disowned_when_a_run_starts():
+    """A finished run's links must not read as this run's."""
+    from web_app.app import lock_run_button
+
+    finished = "<div class='result-links'><a href='/x'>Open the dashboard</a></div>"
+    button, marked = lock_run_button(finished)
+
+    assert button.interactive is False
+    assert "results-superseded" in marked
+    assert "previous run" in marked
+    # The links stay usable; they are labelled, not withdrawn.
+    assert "Open the dashboard" in marked
+
+
+def test_an_empty_results_panel_is_left_alone():
+    """There is nothing to disown before the first run."""
+    from web_app.app import RESULTS_EMPTY_HTML, lock_run_button
+
+    assert lock_run_button(RESULTS_EMPTY_HTML)[1] == RESULTS_EMPTY_HTML
+    assert lock_run_button("")[1] == ""
+
+
+def test_the_notice_is_not_stacked_by_a_second_run():
+    """Two runs in a row must not leave two notices."""
+    from web_app.app import lock_run_button
+
+    once = lock_run_button("<div class='result-links'>links</div>")[1]
+    twice = lock_run_button(once)[1]
+
+    assert twice.count("superseded-note") == 1
