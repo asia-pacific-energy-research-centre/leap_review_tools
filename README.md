@@ -16,8 +16,10 @@ repositories, which remain the single source of truth:
 | `leap_mappings` | the mapping chain between LEAP, ESTO and the 9th Outlook |
 | `leap_dashboard` | the dashboard renderer |
 
-This repository holds the front end and pulls what it needs from those three
-on demand. Nothing is copied by hand.
+This repository holds the front end and the script that assembles the runtime
+snapshot used by the deployment repository. The analysis remains in those
+three source repositories; the prepared runtime is an explicit, reviewable
+copy rather than a live link.
 
 ```text
 web_app/            the Gradio app, its guide overlay and assets
@@ -33,7 +35,9 @@ Two modes, and the app picks between them itself.
 **Development** — with `leap_initialisation`, `leap_mappings` and
 `leap_dashboard` checked out beside this repository, just run it. Each source
 repository is read from its live checkout, so a change there is picked up
-immediately:
+immediately. A prepared `runtime/` takes precedence when it exists; point
+`LEAP_RUNTIME_ROOT` at an empty/nonexistent location when live-source testing
+is required:
 
 ```bash
 python web_app/app.py
@@ -59,10 +63,12 @@ Set `LEAP_RUNTIME_ROOT` or `LEAP_SOURCE_PARENT` if either location differs.
 
 ## Publishing
 
-The Hugging Face Space is a subset of this repository, not a separate project:
-`web_app/`, `requirements.txt` and a prepared `runtime/`. Refresh the runtime,
-run the app locally against it, and only then publish. A deployment must be
-rebuilt from a refreshed runtime whenever the source repositories move on.
+The Hugging Face Space is a deployment copy of this repository, not a live
+link to the source repositories: `web_app/`, `requirements.txt`, and a
+prepared `runtime/`. Refresh the runtime, copy it into the Space checkout, run
+the app locally against that prepared runtime, and only then publish. A
+deployment must be rebuilt from a refreshed runtime whenever the source
+repositories move on.
 
 Before publishing anywhere public, check that every copied file is safe to
 redistribute — a public repository containing the runtime also publishes the
