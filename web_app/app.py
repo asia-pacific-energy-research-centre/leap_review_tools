@@ -570,6 +570,7 @@ body, gradio-app {
 .result-link:hover { background: #d45a20; }
 .result-link.is-primary { font-size: 1.02rem; padding: 14px 24px; }
 .result-hint { color: var(--muted); font-size: 0.84rem; }
+.result-hint.is-warning { color: #a8342a; font-weight: 600; }
 .result-links.is-failed { padding: 0.7rem 0.9rem; border-left: 4px solid #c0392b;
   border-radius: 4px; background: #fdf4f3; }
 /* Output file fields never receive an upload, so their dropzone is dead space. */
@@ -1355,6 +1356,7 @@ def _run_status_line(
     wants_workbook: bool,
     wants_dashboard: bool,
     dashboard_ok: bool,
+    partial_note: str = "",
     runtime_seconds: dict[str, float | None] | None = None,
 ) -> str:
     """Return a plain-language summary of what a finished run produced."""
@@ -1368,6 +1370,8 @@ def _run_status_line(
     made = " and ".join(built)
     if wants_dashboard and not dashboard_ok:
         status = f"Built the {made}; the dashboard failed."
+    elif partial_note:
+        status = f"Built the {made}. {partial_note}"
     else:
         status = f"Built the {made}."
     if runtime_seconds:
@@ -1671,6 +1675,11 @@ def _result_links_html(
     """Return the compact links panel shown once a run has finished."""
     parts = []
     links = dashboard_links or ([] if not dashboard_url else [])
+    if links and dashboard_error:
+        parts.append(
+            "<span class='result-hint is-warning'>Some economies did not "
+            f"render: {html.escape(dashboard_error)}</span>"
+        )
     if links:
         # One button per economy, named, so a multi-economy run is navigable.
         for link in links:
@@ -2143,15 +2152,21 @@ def build_review_from_export(
                         f"Rendering the {name} dashboard "
                         f"({len(dashboards) + 1} of {len(wanted_economies)})."
                     )
-                outcome = developer_launcher.run_dashboard_from_export(
-                    context=context,
-                    economy=name,
-                    export_dir=export_directories[name],
-                    esto_table_path=local_esto,
-                    min_year=dashboard_min_year_value,
-                    max_year=dashboard_max_year_value,
-                    run_label="web",
-                )
+                # One economy failing must not discard the ones already
+                # rendered: a multi-economy run is too long to lose whole.
+                try:
+                    outcome = developer_launcher.run_dashboard_from_export(
+                        context=context,
+                        economy=name,
+                        export_dir=export_directories[name],
+                        esto_table_path=local_esto,
+                        min_year=dashboard_min_year_value,
+                        max_year=dashboard_max_year_value,
+                        run_label="web",
+                    )
+                except Exception as error:  # noqa: BLE001 - reported per economy
+                    dashboards.append({"economy": name, "error": str(error)})
+                    continue
                 if outcome.ok:
                     index_path = Path(outcome.outputs["dashboard_index"])
                     dashboards.append(
@@ -2285,9 +2300,9 @@ def build_review_from_export(
                 "not requested"
                 if not wants_dashboard
                 else "succeeded"
-                if dashboard_links
+                if dashboard_links and not any(d.get("error") for d in dashboards)
                 else "partial"
-                if any(not d.get("error") for d in dashboards)
+                if dashboard_links
                 else "failed"
             ),
             "dashboard_error": dashboard_error,
@@ -2309,6 +2324,11 @@ def build_review_from_export(
                     wants_workbook=wants_workbook,
                     wants_dashboard=wants_dashboard,
                     dashboard_ok=bool(dashboard_links),
+                    partial_note=(
+                        "Some economies did not render."
+                        if dashboard_links and dashboard_error
+                        else ""
+                    ),
                     runtime_seconds=runtime_seconds,
                 )
             ),
