@@ -2307,6 +2307,7 @@ def poll_run(job_id: object, browser_archives: object):
             gr.Timer(active=False),
             gr.Button("Run", interactive=True),
             "",
+            gr.skip(),
         )
     if job.get("state") == "running":
         return (
@@ -2315,6 +2316,7 @@ def poll_run(job_id: object, browser_archives: object):
             gr.Timer(active=True),
             gr.Button("Running…", interactive=False),
             str(job_id),
+            gr.skip(),
         )
     if job.get("state") == "failed":
         return (
@@ -2325,6 +2327,7 @@ def poll_run(job_id: object, browser_archives: object):
             gr.Timer(active=False),
             gr.Button("Run", interactive=True),
             "",
+            gr.skip(),
         )
     result = job.get("result") or ()
     if len(result) != 7:
@@ -2336,12 +2339,114 @@ def poll_run(job_id: object, browser_archives: object):
             gr.Timer(active=False),
             gr.Button("Run", interactive=True),
             "",
+            gr.skip(),
         )
     return (
         *result,
         gr.Timer(active=False),
         gr.Button("Run", interactive=True),
         "",
+        _last_run_record(result[0], result[1], result[2], result[3], result[6]),
+    )
+
+
+def _last_run_record(
+    summary_json: str,
+    status_html: str,
+    workbooks: object,
+    bundle: object,
+    archives: object,
+) -> dict[str, object]:
+    """Return the small record kept in the browser to restore a finished run.
+
+    Only text and paths are stored. The dashboards themselves are already
+    held as compressed pages in the archive store, so links are rebuilt from
+    those rather than from server paths that a restart would invalidate.
+    """
+    records = archives if isinstance(archives, list) else []
+    return {
+        "summary": str(summary_json or ""),
+        "status": str(status_html or ""),
+        "workbooks": [str(path) for path in (workbooks or [])],
+        "bundle": str(bundle) if bundle else "",
+        "archive_ids": [
+            str(record.get("archive_id"))
+            for record in records
+            if isinstance(record, dict) and record.get("archive_id")
+        ][:MAX_BROWSER_DASHBOARDS],
+        "finished_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+    }
+
+
+def restore_last_run(last_run: object, browser_archives: object):
+    """Put a finished run back on the page when someone returns to it.
+
+    Dashboards are republished from the snapshots held in this browser, so
+    they survive a Space restart. Downloads are only offered if the files are
+    still on the server, because those cannot be rebuilt from the browser.
+    """
+    import gradio as gr
+
+    record = last_run if isinstance(last_run, dict) else {}
+    if not record.get("summary") and not record.get("archive_ids"):
+        return gr.skip(), gr.skip(), gr.skip(), gr.skip(), gr.skip()
+
+    archives = browser_archives if isinstance(browser_archives, list) else []
+    wanted = set(record.get("archive_ids") or [])
+    links: list[dict[str, str]] = []
+    for archive in archives:
+        if not isinstance(archive, dict) or archive.get("archive_id") not in wanted:
+            continue
+        try:
+            url = _publish_dashboard_pages(
+                archive.get("pages") or {},
+                economy=str(archive.get("economy", "")),
+                scenario=str(archive.get("scenario", "")),
+                years=archive.get("years", ""),
+            )
+        except (OSError, ValueError, UnicodeDecodeError):
+            continue
+        if url:
+            links.append({"economy": str(archive.get("economy", "")), "url": url})
+
+    surviving = [path for path in record.get("workbooks") or [] if Path(path).is_file()]
+    bundle = record.get("bundle") or ""
+    bundle_path = bundle if bundle and Path(bundle).is_file() else None
+
+    expired = bool(record.get("workbooks")) and not surviving
+    note = (
+        f"<span class='result-hint'>Restored from {html.escape(str(record.get('finished_at', '')))}."
+        + (
+            " The downloads from that run have since been cleared from the server."
+            if expired
+            else ""
+        )
+        + "</span>"
+    )
+    if not (links or surviving or expired):
+        # Nothing survived worth showing; leave the panel in its resting state
+        # rather than captioning an empty result.
+        return gr.skip(), gr.skip(), gr.skip(), gr.skip(), gr.skip()
+
+    if links or surviving:
+        links_html = _result_links_html(
+            dashboard_url=None,
+            dashboard_links=links,
+            dashboard_error=None,
+            wants_dashboard=bool(links),
+            workbook_count=len(surviving),
+        ).replace("</div>", note + "</div>", 1)
+    else:
+        # Only the fact of expiry is left to report, so say that plainly
+        # rather than dressing up the empty state.
+        links_html = f"<div class='result-links'>{note}</div>"
+
+    return (
+        record.get("summary") or gr.skip(),
+        record.get("status") or gr.skip(),
+        surviving,
+        bundle_path,
+        links_html,
     )
 
 
@@ -2568,6 +2673,12 @@ def create_app():
             storage_key="leap_balance_review_active_job",
         )
         run_timer = gr.Timer(3, active=False)
+        # What the last finished run produced, so returning to the page shows
+        # it again instead of an empty results panel.
+        last_run = gr.BrowserState(
+            default_value={},
+            storage_key="leap_balance_review_last_run",
+        )
         with gr.Column(elem_id="results-card"):
             gr.HTML(
                 """<div class="step-heading"><span class="step-kicker">02 · Results</span>
@@ -2694,7 +2805,13 @@ def create_app():
         run_timer.tick(
             fn=poll_run,
             inputs=[active_job, browser_archives],
-            outputs=[*run_outputs_list, run_timer, run_button, active_job],
+            outputs=[
+                *run_outputs_list,
+                run_timer,
+                run_button,
+                active_job,
+                last_run,
+            ],
         )
         dashboard_archive.change(
             fn=select_dashboard_archive,
@@ -2709,6 +2826,10 @@ def create_app():
             fn=load_browser_archives,
             inputs=browser_archives,
             outputs=dashboard_archive,
+        ).then(
+            fn=restore_last_run,
+            inputs=[last_run, browser_archives],
+            outputs=[summary, status, output, diagnostics_bundle, result_links],
         ).then(
             fn=resume_run,
             inputs=[active_job, browser_archives],
