@@ -377,15 +377,10 @@ body, gradio-app {
   font-size: 0.83rem !important;
 }
 .gradio-container table.file-preview a { color: var(--orange) !important; }
-.gradio-container .icon-button-wrapper {
-  position: static !important;
-  min-height: 0 !important;
-  margin: 0 0 0.35rem auto !important;
-  padding: 0 !important;
-  border: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-}
+/* Gradio floats an unlabelled upload and clear icon above a loaded file.
+   Both actions are offered as named buttons below, so the icons are only a
+   second, more cryptic way to do the same thing. */
+.gradio-container .icon-button-wrapper { display: none !important; }
 #export-readout {
   margin-top: 0.2rem;
 }
@@ -615,18 +610,40 @@ body, gradio-app {
   font-weight: 600 !important;
 }
 #clear-export:hover { background: var(--paper) !important; color: var(--ink) !important; }
-#export-actions { gap: 0.5rem; align-items: center; }
+#export-actions {
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+/* Both actions are the same size and weight: neither is the primary one. */
+#export-actions > * { flex: 0 0 auto !important; min-width: 0 !important; }
 /* The add-another picker is a file field, dressed to match the button it sits
    beside so the pair reads as two related actions. */
-#add-export { border: 0 !important; background: transparent !important; min-width: 0 !important; }
+#add-export {
+  /* Gradio's auto-margin class centres a block in its row, which pushed this
+     360px away from the button it belongs beside. */
+  margin: 0 !important;
+  width: auto !important;
+  max-width: 220px !important;
+  border: 0 !important;
+  background: transparent !important;
+  overflow: visible !important;
+}
+/* The dropzone reserves room for a drag target above its label; without it
+   the button matches the height of the one beside it. */
+#add-export > button .wrap { padding: 0 !important; min-height: 0 !important; height: auto !important; }
 #add-export > label.float { display: none !important; }
 #add-export .file-preview-holder { display: none !important; }
 #add-export > button {
-  display: flex !important;
-  height: auto !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: auto !important;
+  height: 33px !important;
   min-height: 0 !important;
   max-height: none !important;
-  padding: 0.35rem 0.7rem !important;
+  padding: 0 0.7rem !important;
   border: 1px solid var(--line) !important;
   border-radius: 5px !important;
   background: #ffffff !important;
