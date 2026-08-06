@@ -127,6 +127,42 @@ APP_CSS = """
   --panel-shadow: 0 16px 45px #17345216;
 }
 .gradio-container {
+  /* The theme resolves its semantic fills to the dark palette even though this
+     app never renders dark, which is why black bars kept surfacing one
+     component at a time: loading overlays, table rows, checkboxes, panels and
+     code blocks all read from these. Setting them once fixes the family
+     rather than the symptom. */
+  --background-fill-primary: #ffffff;
+  --background-fill-secondary: #f4f7fb;
+  --panel-background-fill: #ffffff;
+  --panel-border-color: #cbd8e7;
+  --border-color-primary: #cbd8e7;
+  --border-color-accent-subdued: #cbd8e7;
+  --block-label-border-color: #cbd8e7;
+  --block-label-background-fill: #f4f7fb;
+  --block-title-background-fill: transparent;
+  --checkbox-background-color: #ffffff;
+  --checkbox-background-color-hover: #ffffff;
+  --checkbox-background-color-focus: #ffffff;
+  --checkbox-background-color-selected: #e7672a;
+  --checkbox-label-border-color: #cbd8e7;
+  --checkbox-label-border-color-hover: #cbd8e7;
+  --checkbox-label-border-color-selected: #e7672a;
+  --checkbox-label-background-fill: #f4f7fb;
+  --checkbox-label-background-fill-hover: #eef3f9;
+  --checkbox-label-background-fill-selected: #fff1e8;
+  --code-background-fill: #f4f7fb;
+  --color-accent-soft: #fff1e8;
+  --error-background-fill: #fdf4f3;
+  --error-border-color: #e2b4ae;
+  --input-background-fill-hover: #ffffff;
+  --input-border-color-hover: #cbd8e7;
+  --input-border-color-focus: #e7672a;
+  --table-border-color: #cbd8e7;
+  --table-odd-background-fill: #ffffff;
+  --table-even-background-fill: #f4f7fb;
+  --table-row-focus: #fff1e8;
+  --loader-color: #e7672a;
   --body-background-fill: transparent;
   --body-text-color: #173452;
   --block-background-fill: #ffffff;
