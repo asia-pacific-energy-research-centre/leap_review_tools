@@ -33,6 +33,7 @@ from web_app.runtime_profile import (
     format_runtime_note,
     load_runtime_profile,
     record_runtime_sample,
+    samples_behind_estimate,
 )
 
 
@@ -1116,6 +1117,16 @@ APP_JS = """
       const mins = Math.floor(total / 60);
       return mins + ':' + String(total % 60).padStart(2, '0');
     };
+    // "Longer than usual" reads as something having gone wrong. Naming what
+    // the estimate is measured against says the same thing without the alarm.
+    const longerThanNote = (host) => {
+      const samples = parseInt(host.dataset.samples || '0', 10);
+      if (samples > 1) {
+        return ' — longer than the average of the last ' + samples + ' runs';
+      }
+      if (samples === 1) return ' — longer than the one run measured so far';
+      return ' — still going';
+    };
     let startedAt = null;
     // The worker announces each step it starts. The server drops that text
     // into a hidden line; the caption is the place it belongs, next to the
@@ -1156,7 +1167,7 @@ APP_JS = """
         const left = expected - elapsed;
         remaining.textContent = left > 0
           ? ' — about ' + clock(left) + ' to go'
-          : ' — longer than usual';
+          : longerThanNote(host);
       }
     }, 500);
   };
@@ -1643,6 +1654,10 @@ def _calculator_html(
         dashboard_only, _ = estimate_runtime(profile, process_group="dashboard")
         estimate += (dashboard_only or 0) * (economies - 1)
     expected = f' data-expected="{int(estimate)}"' if estimate else ""
+    # How many measurements the estimate rests on, so the page can name what it
+    # is comparing against rather than implying something has gone wrong.
+    samples = samples_behind_estimate(profile, process_group=group, years=years)
+    expected += f' data-samples="{samples}"'
     return (
         f'<div id="calculator-animation" role="status" aria-live="polite"{expected}>'
         '<div class="calc-machine" aria-hidden="true">'

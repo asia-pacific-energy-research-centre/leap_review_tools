@@ -198,6 +198,44 @@ def estimate_runtime(
     return (float(average) if average is not None else None), None
 
 
+def samples_behind_estimate(
+    profile: dict[str, Any],
+    *,
+    process_group: str,
+    years: int = 1,
+) -> int:
+    """Return how many measurements the quoted estimate actually rests on.
+
+    This follows the same branches as ``estimate_runtime``, because the answer
+    differs by branch: a whole run quoted as workbook plus dashboard rests on
+    those two groups' samples, not on the one full-run measurement that was
+    too thin to fit. The interface says what it is comparing a slow run
+    against, so the number has to be the one that was really used.
+    """
+    durations = list(profile.get("samples_seconds", {}).get(process_group, []))
+    counts = list(profile.get("samples_years", {}).get(process_group, []))
+    counts += [None] * (len(durations) - len(counts))
+
+    if process_group not in YEAR_SCALED_GROUPS:
+        return len(durations)
+
+    pairs = [(int(count), duration) for count, duration in zip(counts, durations) if count]
+    if len({count for count, _ in pairs}) >= 2:
+        return len(pairs)
+
+    if process_group == "full_run":
+        workbook = samples_behind_estimate(
+            profile, process_group="workbook", years=years
+        )
+        dashboard = samples_behind_estimate(
+            profile, process_group="dashboard", years=years
+        )
+        if workbook and dashboard:
+            return min(workbook, dashboard)
+
+    return len(durations)
+
+
 def format_runtime_note(
     profile: dict[str, Any],
     *,

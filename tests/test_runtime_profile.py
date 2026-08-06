@@ -74,3 +74,50 @@ def test_single_year_count_offers_no_marginal_cost() -> None:
     estimate, per_year = estimate_runtime(profile, process_group="workbook", years=4)
     assert per_year is None
     assert estimate == 200.0
+
+
+def test_samples_behind_a_composed_full_run_estimate():
+    """A whole run quoted as workbook plus dashboard rests on those samples.
+
+    The one full-run measurement was too thin to fit, so saying the estimate
+    rests on it would name a number that was never used.
+    """
+    from web_app.runtime_profile import samples_behind_estimate
+
+    profile = {
+        "samples_seconds": {
+            "workbook": [200.0, 210.0, 230.0, 240.0],
+            "dashboard": [260.0, 275.0],
+            "full_run": [430.0],
+        },
+        "samples_years": {
+            "workbook": [1, 1, 2, 3],
+            "dashboard": [1, 1],
+            "full_run": [1],
+        },
+    }
+
+    assert samples_behind_estimate(profile, process_group="workbook") == 4
+    assert samples_behind_estimate(profile, process_group="dashboard") == 2
+    # Composed from both, so only as well measured as the scarcer one.
+    assert samples_behind_estimate(profile, process_group="full_run") == 2
+
+
+def test_samples_behind_a_directly_fitted_full_run_estimate():
+    """With two year counts of its own, a full run is fitted from its samples."""
+    from web_app.runtime_profile import samples_behind_estimate
+
+    profile = {
+        "samples_seconds": {"workbook": [], "dashboard": [], "full_run": [430.0, 470.0]},
+        "samples_years": {"workbook": [], "dashboard": [], "full_run": [1, 2]},
+    }
+
+    assert samples_behind_estimate(profile, process_group="full_run") == 2
+
+
+def test_no_measurements_means_no_claim():
+    from web_app.runtime_profile import samples_behind_estimate
+
+    empty = {"samples_seconds": {}, "samples_years": {}}
+
+    assert samples_behind_estimate(empty, process_group="full_run") == 0
