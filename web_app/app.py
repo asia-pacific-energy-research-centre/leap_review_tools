@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import zipfile
 from dataclasses import dataclass
@@ -1305,17 +1306,23 @@ def _run_status_line(
     return status
 
 
-def _card_runtime_note_html(profile: dict[str, object], group: str, *, years: int) -> str:
+def _card_runtime_note_html(
+    profile: dict[str, object], group: str, *, years: int, economies: int = 1
+) -> str:
     """Return one process card's runtime note."""
     return (
         "<p class='card-note runtime-note'>"
-        + html.escape(format_runtime_note(profile, process_group=group, years=years))
+        + html.escape(
+            format_runtime_note(
+                profile, process_group=group, years=years, economies=economies
+            )
+        )
         + "</p>"
     )
 
 
 def _calculator_html(
-    profile: dict[str, object], *, want_dashboard: bool, years: int
+    profile: dict[str, object], *, want_dashboard: bool, years: int, economies: int = 1
 ) -> str:
     """Return the working animation, carrying the elapsed clock with it.
 
@@ -1326,6 +1333,9 @@ def _calculator_html(
     """
     group = "full_run" if want_dashboard else "workbook"
     estimate, _ = estimate_runtime(profile, process_group=group, years=years)
+    if estimate and want_dashboard and economies > 1:
+        dashboard_only, _ = estimate_runtime(profile, process_group="dashboard")
+        estimate += (dashboard_only or 0) * (economies - 1)
     expected = f' data-expected="{int(estimate)}"' if estimate else ""
     return (
         f'<div id="calculator-animation" role="status" aria-live="polite"{expected}>'
@@ -1345,17 +1355,27 @@ def _calculator_html(
 
 
 def update_runtime_notes(
-    year: object, want_workbook: object, want_dashboard: object
+    year: object,
+    want_workbook: object,
+    want_dashboard: object,
+    economy_choice: object = None,
 ) -> tuple[str, str]:
-    """Re-quote the estimates for the year count currently typed in."""
+    """Re-quote the estimates for the years and economies now selected."""
     profile = _hosted_runtime_profile()
     years = max(len(_requested_years(year)), 1)
+    selected = (
+        economy_choice
+        if isinstance(economy_choice, (list, tuple))
+        else ([economy_choice] if economy_choice else [])
+    )
+    economies = max(len([name for name in selected if str(name or "").strip()]), 1)
     return (
         _card_runtime_note_html(profile, "workbook", years=years),
         _calculator_html(
             profile,
             want_dashboard=bool(want_dashboard) or not bool(want_workbook),
             years=years,
+            economies=economies,
         ),
     )
 
@@ -1377,6 +1397,114 @@ def clear_uploaded_export() -> tuple[object, str, object, object, object, object
         gr.Dropdown(choices=[], value=None, visible=False),
         gr.Dropdown(choices=[], value=None, visible=False),
     )
+
+
+# Runs are executed off the request that started them, in a worker thread
+# owned by the process rather than by a browser tab. Closing the tab, losing
+# the connection or reloading the page therefore does not cancel a build: the
+# page reattaches by job id and keeps polling. The dictionary lives as long as
+# the process does, so a Space restart is still the end of a run.
+RUN_JOBS: dict[str, dict[str, object]] = {}
+RUN_JOBS_LOCK = threading.Lock()
+JOB_RETENTION_SECONDS = 6 * 60 * 60
+
+
+def _forget_stale_jobs() -> None:
+    """Drop finished jobs nobody came back for."""
+    cutoff = time.time() - JOB_RETENTION_SECONDS
+    with RUN_JOBS_LOCK:
+        for job_id in [
+            key
+            for key, job in RUN_JOBS.items()
+            if job.get("state") != "running" and float(job.get("finished") or 0) < cutoff
+        ]:
+            RUN_JOBS.pop(job_id, None)
+
+
+def _job_snapshot(job_id: str) -> dict[str, object] | None:
+    with RUN_JOBS_LOCK:
+        job = RUN_JOBS.get(job_id)
+        return dict(job) if job else None
+
+
+def _set_job(job_id: str, **fields: object) -> None:
+    with RUN_JOBS_LOCK:
+        job = RUN_JOBS.setdefault(job_id, {})
+        job.update(fields)
+
+
+def start_run(
+    want_workbook: object,
+    want_dashboard: object,
+    year: object,
+    economy_override: str,
+    balance_export_workbook: object,
+    economy_choice: object,
+    scenario_choice: object,
+    browser_archives: object,
+) -> str:
+    """Begin a build in the background and return its job id.
+
+    The uploaded files are copied before the worker starts, because Gradio
+    clears its upload directory once the request that carried them ends.
+    """
+    _forget_stale_jobs()
+    job_id = uuid4().hex
+    keep_root = Path(tempfile.mkdtemp(prefix="leap_balance_review_web_"))
+    kept = []
+    for path in _uploaded_paths(balance_export_workbook):
+        kept.append(str(_copy_input(path, keep_root / "uploads")))
+
+    _set_job(
+        job_id,
+        state="running",
+        started=time.time(),
+        finished=None,
+        message="Starting the run.",
+        result=None,
+    )
+
+    def worker() -> None:
+        def report(message: str) -> None:
+            _set_job(job_id, message=message)
+
+        try:
+            result = build_review_from_export(
+                want_workbook,
+                want_dashboard,
+                year,
+                economy_override,
+                kept,
+                economy_choice,
+                scenario_choice,
+                browser_archives,
+                progress=report,
+            )
+            _set_job(
+                job_id, state="done", finished=time.time(), result=result, message=""
+            )
+        except Exception as error:  # A crash must still reach the page.
+            _set_job(
+                job_id,
+                state="failed",
+                finished=time.time(),
+                message=f"Build failed: {error}",
+                result=None,
+            )
+
+    # Not a daemon: a build that has started should be allowed to finish.
+    threading.Thread(target=worker, name=f"leap-run-{job_id[:8]}", daemon=False).start()
+    return job_id
+
+
+def describe_job(job_id: object) -> str:
+    """Return the worker's own progress line for a running job."""
+    job = _job_snapshot(str(job_id or ""))
+    if not job or job.get("state") != "running":
+        return ""
+    elapsed = int(time.time() - float(job.get("started") or time.time()))
+    minutes, seconds = divmod(elapsed, 60)
+    return f"{job.get('message') or 'Working.'} ({minutes}:{seconds:02d} elapsed)"
 
 
 def lock_run_button() -> object:
@@ -1444,10 +1572,25 @@ def _result_links_html(
     dashboard_error: str | None,
     wants_dashboard: bool,
     workbook_count: int,
+    dashboard_links: list[dict[str, str]] | None = None,
 ) -> str:
     """Return the compact links panel shown once a run has finished."""
     parts = []
-    if dashboard_url:
+    links = dashboard_links or ([] if not dashboard_url else [])
+    if links:
+        # One button per economy, named, so a multi-economy run is navigable.
+        for link in links:
+            label = (
+                "Open the dashboard"
+                if len(links) == 1
+                else f"{link['economy']} dashboard"
+            )
+            parts.append(
+                f"<a class='result-link is-primary' href='{html.escape(link['url'])}' "
+                f"target='_blank' rel='noopener'>{html.escape(label)} "
+                "<span aria-hidden='true'>↗</span></a>"
+            )
+    elif dashboard_url:
         parts.append(
             f"<a class='result-link is-primary' href='{html.escape(dashboard_url)}' "
             "target='_blank' rel='noopener'>Open the dashboard "
@@ -1696,7 +1839,7 @@ def inspect_uploaded_export(
             gr.Button(visible=True),
             gr.Dropdown(
                 choices=economies,
-                value=first_economy,
+                value=economies,
                 visible=True,
                 interactive=True,
             ),
@@ -1797,6 +1940,7 @@ def build_review_from_export(
     economy_choice: object = None,
     scenario_choice: object = None,
     browser_archives: object = None,
+    progress: object = None,
     dashboard_min_year: float = DEFAULT_DASHBOARD_MIN_YEAR,
     dashboard_max_year: float = DEFAULT_DASHBOARD_MAX_YEAR,
 ) -> tuple[str, str, object, str | None, str, object, object]:
@@ -1843,17 +1987,18 @@ def build_review_from_export(
                 "Enter the economy code so the run knows which one to use."
             )
 
-        chosen = str(economy_choice or "").strip()
-        if chosen and chosen in grouped:
-            economy_value = chosen
-        elif len(grouped) == 1:
-            economy_value = next(iter(grouped))
-        else:
-            raise ValueError(
-                "Choose which economy to render: "
-                + ", ".join(sorted(grouped))
-                + "."
+        wanted_economies = [
+            name
+            for name in (
+                economy_choice
+                if isinstance(economy_choice, (list, tuple))
+                else [economy_choice]
             )
+            if str(name or "").strip() in grouped
+        ]
+        if not wanted_economies:
+            wanted_economies = list(grouped)
+        economy_value = wanted_economies[0]
         economy_uploads = grouped[economy_value]
 
         # A workbook is built for one economy and scenario. With several files
@@ -1891,10 +2036,13 @@ def build_review_from_export(
         local_esto = _copy_input(esto_path, run_root / "uploads") if esto_path else None
         # Every economy gets its own export folder, which is the shape the
         # dashboard resolver expects; it picks the newest file per scenario.
-        export_directory = run_root / "exports" / _safe_filename_token(economy_value)
-        export_directory.mkdir(parents=True, exist_ok=True)
-        for upload in economy_uploads:
-            _copy_input(upload.path, export_directory)
+        export_directories: dict[str, Path] = {}
+        for name in wanted_economies:
+            directory = run_root / "exports" / _safe_filename_token(name)
+            directory.mkdir(parents=True, exist_ok=True)
+            for upload in grouped[name]:
+                _copy_input(upload.path, directory)
+            export_directories[name] = directory
         local_export = _copy_input(workbook_upload.path, run_root / "uploads")
         context = _build_context(run_root)
 
@@ -1923,29 +2071,58 @@ def build_review_from_export(
             diagnostics_directory = Path(result.outputs["diagnostics_directory"])
             workbook_seconds = time.perf_counter() - workbook_started
 
-        dashboard_result = None
         dashboard_error = None
         dashboard_directory: Path | None = None
         dashboard_page_names: list[str] = []
         dashboard_seconds: float | None = None
+        # One dashboard per economy: the renderer covers a single economy, so
+        # several are rendered in turn and reported separately.
+        dashboards: list[dict[str, object]] = []
         if wants_dashboard:
             dashboard_started = time.perf_counter()
-            dashboard_result = developer_launcher.run_dashboard_from_export(
-                context=context,
-                economy=economy_value,
-                export_dir=export_directory,
-                esto_table_path=local_esto,
-                min_year=dashboard_min_year_value,
-                max_year=dashboard_max_year_value,
-                run_label="web",
-            )
+            for name in wanted_economies:
+                if progress is not None:
+                    progress(
+                        f"Rendering the {name} dashboard "
+                        f"({len(dashboards) + 1} of {len(wanted_economies)})."
+                    )
+                outcome = developer_launcher.run_dashboard_from_export(
+                    context=context,
+                    economy=name,
+                    export_dir=export_directories[name],
+                    esto_table_path=local_esto,
+                    min_year=dashboard_min_year_value,
+                    max_year=dashboard_max_year_value,
+                    run_label="web",
+                )
+                if outcome.ok:
+                    index_path = Path(outcome.outputs["dashboard_index"])
+                    dashboards.append(
+                        {
+                            "economy": name,
+                            "directory": index_path.parent,
+                            "pages": _dashboard_pages(index_path.parent),
+                        }
+                    )
+                else:
+                    dashboards.append(
+                        {
+                            "economy": name,
+                            "error": outcome.error or "Dashboard generation failed.",
+                        }
+                    )
             dashboard_seconds = time.perf_counter() - dashboard_started
-        if dashboard_result is not None and dashboard_result.ok:
-            dashboard_index = Path(dashboard_result.outputs["dashboard_index"])
-            dashboard_directory = dashboard_index.parent
-            dashboard_page_names = _dashboard_pages(dashboard_directory)
-        elif dashboard_result is not None:
-            dashboard_error = dashboard_result.error or "Dashboard generation failed."
+            failures = [d for d in dashboards if d.get("error")]
+            if failures and len(failures) == len(dashboards):
+                dashboard_error = str(failures[0]["error"])
+            elif failures:
+                dashboard_error = "; ".join(
+                    f"{d['economy']}: {d['error']}" for d in failures
+                )
+            rendered = [d for d in dashboards if not d.get("error")]
+            if rendered:
+                dashboard_directory = rendered[0]["directory"]
+                dashboard_page_names = list(rendered[0]["pages"])
 
         run_outputs = result.outputs if result is not None else {}
         years_built = run_outputs.get("years", year_value) if wants_workbook else None
@@ -1973,33 +2150,38 @@ def build_review_from_export(
                 log_directory=run_root / "logs",
             )
 
-        snapshot = (
-            _dashboard_snapshot(
-                dashboard_directory,
-                economy=economy_value,
+        # Each rendered economy gets its own snapshot and its own link.
+        snapshots = []
+        for rendered in dashboards:
+            if rendered.get("error"):
+                continue
+            name = str(rendered["economy"])
+            snapshot_for = _dashboard_snapshot(
+                rendered["directory"],
+                economy=name,
                 scenario=scenario_value,
                 years=years_built or "",
             )
-            if dashboard_directory is not None
-            else None
-        )
+            url = _publish_dashboard_pages(
+                snapshot_for["pages"],
+                economy=name,
+                scenario=scenario_value,
+                years=years_built or "",
+            )
+            snapshots.append({"economy": name, "snapshot": snapshot_for, "url": url})
+
+        snapshot = snapshots[0]["snapshot"] if snapshots else None
+        dashboard_url = snapshots[0]["url"] if snapshots else None
+        dashboard_links = [
+            {"economy": item["economy"], "url": item["url"]}
+            for item in snapshots
+            if item["url"]
+        ]
         existing_archives = browser_archives if isinstance(browser_archives, list) else []
         browser_archive_records = (
-            [snapshot, *existing_archives[: MAX_BROWSER_DASHBOARDS - 1]]
-            if snapshot is not None
-            else existing_archives[:MAX_BROWSER_DASHBOARDS]
-        )
-
-        dashboard_url = (
-            _publish_dashboard_pages(
-                snapshot["pages"],
-                economy=economy_value,
-                scenario=scenario_value,
-                years=years_built or "",
-            )
-            if snapshot is not None
-            else None
-        )
+            [item["snapshot"] for item in snapshots]
+            + existing_archives[: max(MAX_BROWSER_DASHBOARDS - len(snapshots), 0)]
+        )[:MAX_BROWSER_DASHBOARDS] if snapshots else existing_archives[:MAX_BROWSER_DASHBOARDS]
 
         build_result = run_outputs.get("build_result", {})
         runtime_seconds = {
@@ -2046,11 +2228,19 @@ def build_review_from_export(
                 "not requested"
                 if not wants_dashboard
                 else "succeeded"
-                if dashboard_result is not None and dashboard_result.ok
+                if dashboard_links
+                else "partial"
+                if any(not d.get("error") for d in dashboards)
                 else "failed"
             ),
             "dashboard_error": dashboard_error,
             "dashboard_pages": dashboard_page_names,
+            "dashboards_rendered": [
+                d["economy"] for d in dashboards if not d.get("error")
+            ],
+            "dashboards_failed": [
+                d["economy"] for d in dashboards if d.get("error")
+            ],
             "dashboard_archive_id": snapshot["archive_id"] if snapshot else None,
             "dashboard_storage": "browser-local",
             "runtime_seconds": runtime_seconds,
@@ -2061,7 +2251,7 @@ def build_review_from_export(
                 _run_status_line(
                     wants_workbook=wants_workbook,
                     wants_dashboard=wants_dashboard,
-                    dashboard_ok=dashboard_result is not None and dashboard_result.ok,
+                    dashboard_ok=bool(dashboard_links),
                     runtime_seconds=runtime_seconds,
                 )
             ),
@@ -2069,6 +2259,7 @@ def build_review_from_export(
             str(persistent_bundle) if persistent_bundle else None,
             _result_links_html(
                 dashboard_url=dashboard_url,
+                dashboard_links=dashboard_links,
                 dashboard_error=dashboard_error,
                 wants_dashboard=wants_dashboard,
                 workbook_count=len(persistent_workbooks),
@@ -2098,57 +2289,73 @@ def _dropdown_update(choices: list[object], value: object) -> object:
     return gr.Dropdown(choices=choices, value=value)
 
 
-def build_review_from_export_live(
-    want_workbook: object,
-    want_dashboard: object,
-    year: object,
-    economy_override: str,
-    balance_export_workbook: object,
-    browser_archives: object = None,
-    dashboard_min_year: float = DEFAULT_DASHBOARD_MIN_YEAR,
-    dashboard_max_year: float = DEFAULT_DASHBOARD_MAX_YEAR,
-):
-    """Keep the Gradio event alive while the full build runs.
+def poll_run(job_id: object, browser_archives: object):
+    """Return the outputs of a finished job, or keep the page waiting.
 
-    A workbook plus dashboard run can take several minutes.  Running the
-    existing synchronous workflow in a worker and yielding a small heartbeat
-    prevents a browser or hosted proxy from treating the quiet event stream
-    as failed before the final outputs are ready.
+    Called on a timer, so a page that was closed and reopened picks the run up
+    exactly where it is rather than restarting it.
     """
-    executor = ThreadPoolExecutor(max_workers=1)
-    future = executor.submit(
-        build_review_from_export,
-        want_workbook,
-        want_dashboard,
-        year,
-        economy_override,
-        balance_export_workbook,
-        browser_archives,
-        dashboard_min_year,
-        dashboard_max_year,
+    import gradio as gr
+
+    saved = browser_archives if isinstance(browser_archives, list) else []
+    job = _job_snapshot(str(job_id or ""))
+    if job is None:
+        # Nothing to watch: an unknown or forgotten id stops the timer.
+        return (
+            gr.skip(), gr.skip(), gr.skip(), gr.skip(), gr.skip(),
+            gr.skip(), gr.skip(),
+            gr.Timer(active=False),
+            gr.Button("Run", interactive=True),
+            "",
+        )
+    if job.get("state") == "running":
+        return (
+            gr.skip(), _status_html(describe_job(job_id)), gr.skip(), gr.skip(),
+            gr.skip(), gr.skip(), gr.skip(),
+            gr.Timer(active=True),
+            gr.Button("Running…", interactive=False),
+            str(job_id),
+        )
+    if job.get("state") == "failed":
+        return (
+            "", _status_html(str(job.get("message") or "Build failed.")), [], None,
+            RESULTS_EMPTY_HTML,
+            _dropdown_update(_browser_dashboard_choices(saved), None),
+            saved,
+            gr.Timer(active=False),
+            gr.Button("Run", interactive=True),
+            "",
+        )
+    result = job.get("result") or ()
+    if len(result) != 7:
+        return (
+            "", _status_html("The run finished without producing outputs."), [], None,
+            RESULTS_EMPTY_HTML,
+            _dropdown_update(_browser_dashboard_choices(saved), None),
+            saved,
+            gr.Timer(active=False),
+            gr.Button("Run", interactive=True),
+            "",
+        )
+    return (
+        *result,
+        gr.Timer(active=False),
+        gr.Button("Run", interactive=True),
+        "",
     )
-    try:
-        while not future.done():
-            saved_archives = (
-                browser_archives if isinstance(browser_archives, list) else []
-            )
-            yield (
-                "",
-                "",
-                [],
-                None,
-                RESULTS_EMPTY_HTML,
-                _dropdown_update(_browser_dashboard_choices(saved_archives), None),
-                saved_archives,
-            )
-            time.sleep(10)
-        yield future.result()
-    except GeneratorExit:
-        executor.shutdown(wait=False, cancel_futures=True)
-        raise
-    finally:
-        if future.done():
-            executor.shutdown(wait=False)
+
+
+def resume_run(job_id: object, browser_archives: object):
+    """Reattach to a run still going when the page was reopened."""
+    import gradio as gr
+
+    job = _job_snapshot(str(job_id or ""))
+    if job is None:
+        return gr.Timer(active=False), gr.Button("Run", interactive=True)
+    if job.get("state") == "running":
+        return gr.Timer(active=True), gr.Button("Running…", interactive=False)
+    # A run that finished while the page was away is collected on the next tick.
+    return gr.Timer(active=True), gr.Button("Running…", interactive=False)
 
 
 def select_dashboard_archive(
@@ -2257,7 +2464,8 @@ def create_app():
             )
             with gr.Row(elem_id="selection-row"):
                 economy_choice = gr.Dropdown(
-                    label="Economy to render",
+                    label="Economies to render",
+                    multiselect=True,
                     choices=[],
                     value=None,
                     visible=False,
@@ -2353,6 +2561,13 @@ def create_app():
             default_value=[],
             storage_key="leap_balance_review_dashboard_archives",
         )
+        # The id of a run in flight, kept in the browser so a reopened page can
+        # find its way back to work that is still going.
+        active_job = gr.BrowserState(
+            default_value="",
+            storage_key="leap_balance_review_active_job",
+        )
+        run_timer = gr.Timer(3, active=False)
         with gr.Column(elem_id="results-card"):
             gr.HTML(
                 """<div class="step-heading"><span class="step-kicker">02 · Results</span>
@@ -2408,10 +2623,10 @@ def create_app():
                     elem_id="saved-link",
                 )
 
-        for _control in (year, want_workbook, want_dashboard):
+        for _control in (year, want_workbook, want_dashboard, economy_choice):
             _control.change(
                 fn=update_runtime_notes,
-                inputs=[year, want_workbook, want_dashboard],
+                inputs=[year, want_workbook, want_dashboard, economy_choice],
                 outputs=[workbook_runtime_note, calculator_animation],
             )
         clear_export_button.click(
@@ -2444,13 +2659,23 @@ def create_app():
             inputs=[balance_export_workbook, economy_choice],
             outputs=scenario_choice,
         )
-        # The button is locked for the whole run and released afterwards, so a
-        # second press cannot start a competing build while one is in flight.
+        # Starting a run hands the work to a background worker and remembers
+        # its id in the browser, so closing the tab does not cancel the build
+        # and reopening the page reattaches to it.
+        run_outputs_list = [
+            summary,
+            status,
+            output,
+            diagnostics_bundle,
+            result_links,
+            dashboard_archive,
+            browser_archives,
+        ]
         run_button.click(
             fn=lock_run_button,
             outputs=run_button,
         ).then(
-            fn=build_review_from_export_live,
+            fn=start_run,
             inputs=[
                 want_workbook,
                 want_dashboard,
@@ -2459,19 +2684,17 @@ def create_app():
                 balance_export_workbook,
                 economy_choice,
                 scenario_choice,
-            ],
-            outputs=[
-                summary,
-                status,
-                output,
-                diagnostics_bundle,
-                result_links,
-                dashboard_archive,
                 browser_archives,
             ],
+            outputs=active_job,
         ).then(
-            fn=release_run_button,
-            outputs=run_button,
+            fn=lambda: gr.Timer(active=True),
+            outputs=run_timer,
+        )
+        run_timer.tick(
+            fn=poll_run,
+            inputs=[active_job, browser_archives],
+            outputs=[*run_outputs_list, run_timer, run_button, active_job],
         )
         dashboard_archive.change(
             fn=select_dashboard_archive,
@@ -2486,6 +2709,10 @@ def create_app():
             fn=load_browser_archives,
             inputs=browser_archives,
             outputs=dashboard_archive,
+        ).then(
+            fn=resume_run,
+            inputs=[active_job, browser_archives],
+            outputs=[run_timer, run_button],
         )
     return app
 

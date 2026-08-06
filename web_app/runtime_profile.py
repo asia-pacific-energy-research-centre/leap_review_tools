@@ -203,8 +203,13 @@ def format_runtime_note(
     *,
     process_group: str,
     years: int = 1,
+    economies: int = 1,
 ) -> str:
-    """Return concise UI copy for a process card."""
+    """Return concise UI copy for a process card.
+
+    A dashboard is rendered per economy, so several multiply the wait. The
+    per-economy cost is quoted whenever more than one could be rendered.
+    """
     estimate, per_year = estimate_runtime(
         profile, process_group=process_group, years=years
     )
@@ -215,12 +220,19 @@ def format_runtime_note(
         if str(profile.get("source", "")) == "huggingface_space"
         else "Typical run"
     )
+    per_economy = estimate if process_group == "dashboard" else None
+    if process_group == "dashboard" and economies > 1:
+        estimate = estimate * economies
     if process_group in YEAR_SCALED_GROUPS and years > 1:
         note = f"{lead}: about {format_duration(estimate)} for {years} years."
+    elif process_group == "dashboard" and economies > 1:
+        note = f"{lead}: about {format_duration(estimate)} for {economies} economies."
     else:
         note = f"{lead}: about {format_duration(estimate)}."
     if per_year is not None and process_group in YEAR_SCALED_GROUPS:
         note += f" Each extra year adds about {format_duration(per_year)}."
+    if per_economy is not None:
+        note += f" Each extra economy adds about {format_duration(per_economy)}."
     return note
 
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import subprocess
 import sys
 from pathlib import Path
 
@@ -44,12 +45,39 @@ def offending_fstrings(path: Path) -> list[tuple[int, str]]:
     return found
 
 
+def undefined_names(roots: list[str]) -> list[str]:
+    """Return ruff's undefined-name findings, if ruff is installed.
+
+    Three long builds have been lost to a name left behind by a refactor:
+    the work completed, then the run failed while describing itself. This
+    catches that in milliseconds, so it runs before a deploy rather than after.
+    """
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "ruff", "check", "--select", "F821", *roots],
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return []
+    if result.returncode == 0:
+        return []
+    return [
+        line
+        for line in result.stdout.splitlines()
+        if "F821" in line or "undefined" in line.lower()
+    ]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("roots", nargs="*", default=["runtime", "web_app"])
     arguments = parser.parse_args()
 
     failures = 0
+    for finding in undefined_names(list(arguments.roots)):
+        failures += 1
+        print(finding)
     for root in arguments.roots:
         for path in sorted(Path(root).rglob("*.py")):
             for line, expression in offending_fstrings(path):
