@@ -679,6 +679,9 @@ body, gradio-app {
   text-align: center;
 }
 .run-status-line.is-failed { color: #a8342a; font-weight: 600; }
+/* The running step is carried here only so the script can read it; it is
+   shown inside the calculator caption instead of on a line of its own. */
+.run-status-line.is-step { display: none; }
 #calculator-animation { min-height: 0; margin: 0; }
 /* Elapsed time sits with the estimate it should be read against. */
 .calc-caption .run-stopwatch {
@@ -992,14 +995,29 @@ APP_JS = """
       return mins + ':' + String(total % 60).padStart(2, '0');
     };
     let startedAt = null;
+    // The worker announces each step it starts. The server drops that text
+    // into a hidden line; the caption is the place it belongs, next to the
+    // clock, so it is copied across whenever it changes.
+    const idleCaption = 'Checking balances and preparing your files';
     window.setInterval(() => {
       const host = document.querySelector('#calculator-animation');
       if (!host) return;
       const face = host.querySelector('.run-stopwatch');
       const value = host.querySelector('.stopwatch-value');
       const remaining = host.querySelector('.stopwatch-remaining');
+      const step = host.querySelector('.calc-step');
       const running = button.disabled;
       host.classList.toggle('is-running', running);
+      if (step) {
+        const announced = document.querySelector('#run-status .is-step');
+        let text = idleCaption;
+        if (running && announced) {
+          text = (announced.textContent || '').trim();
+          // The caption already trails an animated ellipsis.
+          if (text.endsWith('.')) text = text.slice(0, -1);
+        }
+        if (step.textContent !== text) step.textContent = text;
+      }
       if (!running) {
         startedAt = null;
         if (face) face.hidden = true;
@@ -1368,13 +1386,27 @@ RESULTS_EMPTY_HTML = (
 )
 
 
-def _status_html(message: str) -> str:
-    """Return run status as escaped markup, or nothing at all when silent."""
+def _status_html(message: str, *, tone: str = "") -> str:
+    """Return run status as escaped markup, or nothing at all when silent.
+
+    The ``is-step`` tone is written for the browser rather than the reader: it
+    is hidden by CSS, and the script copies its text into the calculator
+    caption so a run's progress is announced where the clock already is.
+    """
     text = str(message or "").strip()
     if not text:
         return ""
-    tone = "is-failed" if text.lower().startswith("build failed") else "is-done"
+    if not tone:
+        tone = "is-failed" if text.lower().startswith("build failed") else "is-done"
     return f"<p class='run-status-line {tone}'>{html.escape(text)}</p>"
+
+
+def job_step(job_id: object) -> str:
+    """Return the worker's current step for a running job, without a clock."""
+    job = _job_snapshot(str(job_id or ""))
+    if not job or job.get("state") != "running":
+        return ""
+    return str(job.get("message") or "Working")
 
 
 def _run_status_line(
@@ -1449,7 +1481,8 @@ def _calculator_html(
         '<div class="calc-keys">'
         + ('<i class="calc-key"></i>' * 6)
         + "</div></div>"
-        '<div class="calc-caption">Checking balances and preparing your files'
+        '<div class="calc-caption">'
+        '<span class="calc-step">Checking balances and preparing your files</span>'
         '<span class="calc-dots">...</span>'
         '<span class="run-stopwatch" hidden>'
         '<span class="stopwatch-dot" aria-hidden="true"></span>'
@@ -2404,9 +2437,11 @@ def poll_run(job_id: object, browser_archives: object):
         )
     if job.get("state") == "running":
         return (
-            # No progress line while running: the calculator already shows
-            # CALCULATING and the elapsed clock, so this only repeated it.
-            gr.skip(), "", gr.skip(), gr.skip(),
+            # Hidden while running: the script moves this text into the
+            # calculator caption, beside the clock, rather than showing a
+            # second progress line of its own.
+            gr.skip(), _status_html(job_step(job_id), tone="is-step"),
+            gr.skip(), gr.skip(),
             gr.skip(), gr.skip(), gr.skip(),
             gr.Timer(active=True),
             gr.Button("Running…", interactive=False),
