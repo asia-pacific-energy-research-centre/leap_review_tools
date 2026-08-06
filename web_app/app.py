@@ -184,7 +184,7 @@ APP_CSS = """
   max-width: 1180px !important;
   width: calc(100% - 2rem) !important;
   margin: 0 auto !important;
-  padding: 0.6rem 0 1.6rem !important;
+  padding: 0.5rem 0 1.2rem !important;
   color: #173452 !important;
   font: 15px/1.55 Inter, "Segoe UI", Arial, sans-serif !important;
 }
@@ -265,7 +265,7 @@ body, gradio-app {
 }
 .step-heading .step-kicker {
   display: block;
-  margin-bottom: 0.3rem;
+  margin-bottom: 0.15rem;
   color: var(--orange);
   font-size: 11px;
   font-weight: 800;
@@ -275,18 +275,26 @@ body, gradio-app {
 .step-heading strong {
   display: block;
   color: var(--ink);
-  font-size: 1.2rem;
+  font-size: 1.12rem;
   letter-spacing: -0.035em;
   line-height: 1.15;
 }
-.step-heading p { margin: 0.15rem 0 0; color: var(--muted); font-size: 0.83rem; }
+.step-heading p { margin: 0.1rem 0 0; color: var(--muted); font-size: 0.81rem; line-height: 1.35; }
 #upload-card, #results-card {
-  gap: 0.5rem;
-  padding: 1.1rem !important;
+  gap: 0.4rem;
+  padding: 0.85rem 0.9rem !important;
   border: 1px solid var(--line) !important;
   border-radius: 9px !important;
   background: var(--panel) !important;
   box-shadow: var(--panel-shadow);
+}
+/* Gradio pads every HTML block by 10px top and bottom. Inside the cards the
+   card's own gap already separates the blocks, so that padding is pure empty
+   space -- roughly 60px of it down the page. */
+#upload-card .html-container.padding,
+#results-card .html-container.padding {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
 }
 #upload-row, #action-row, #download-row, #dashboard-controls { gap: 0.8rem; }
 #upload-row .gr-form { padding: 0.65rem 0.75rem; }
@@ -312,7 +320,7 @@ body, gradio-app {
   font-weight: 700 !important;
 }
 #upload-row { align-items: center; }
-#upload-card .step-heading, #results-card .step-heading { margin: 0 0 0.35rem; }
+#upload-card .step-heading, #results-card .step-heading { margin: 0 0 0.2rem; }
 #upload-card .step-heading p, #results-card .step-heading p { font-size: 0.8rem; }
 /* Gradio's dropzone offers two ways in — drag here, or click — and renders the
    "- or -" between them. The choice is noise when only one route is obvious in
@@ -326,9 +334,9 @@ body, gradio-app {
 #balance-upload > button {
   display: flex !important;
   height: auto !important;
-  min-height: 64px !important;
+  min-height: 52px !important;
   max-height: none !important;
-  padding: 0.7rem 1rem !important;
+  padding: 0.55rem 1rem !important;
   border: 1px solid #cf5a22 !important;
   border-radius: 3px !important;
   background: var(--orange) !important;
@@ -341,13 +349,14 @@ body, gradio-app {
 /* Gradio's dropzone wrap carries a 240px min-height for the drag target; with
    the drag affordance gone the button sizes to its own content instead. */
 #balance-upload > button .wrap {
-  gap: 0.6rem !important;
+  gap: 0.5rem !important;
   height: auto !important;
   min-height: 0 !important;
+  padding: 0 !important;
   color: #ffffff !important;
   opacity: 1 !important;
 }
-#balance-upload > button .icon-wrap { width: 26px !important; margin: 0 !important; }
+#balance-upload > button .icon-wrap { width: 22px !important; margin: 0 !important; }
 #balance-upload > button .icon-wrap svg { color: #ffffff !important; opacity: 1 !important; }
 /* Once a file is loaded, Gradio swaps the button for a preview: an orange
    block label, a slate-filled table row, and a bare clear button floating to
@@ -385,7 +394,7 @@ body, gradio-app {
   margin-top: 0.2rem;
 }
 .export-readout {
-  padding: 0.55rem 0.8rem;
+  padding: 0.45rem 0.7rem;
   border: 1px solid #c4d2e0;
   border-left-width: 4px;
   border-radius: 3px;
@@ -439,8 +448,8 @@ body, gradio-app {
   font-weight: 600;
 }
 .readout-chip {
-  min-width: 116px;
-  padding: 0.4rem 0.6rem;
+  min-width: 108px;
+  padding: 0.3rem 0.55rem;
   border: 1px solid #c9d6e3;
   border-radius: 3px;
   background: #ffffff;
@@ -467,7 +476,7 @@ body, gradio-app {
 /* Every disclosure on the page says what opening it does and puts the
    affordance on the left, where the label is read from. */
 #workbook-note, #saved-reviews {
-  margin-top: 0.35rem;
+  margin-top: 0.2rem;
   border: 1px solid var(--line) !important;
   border-radius: 6px !important;
   background: #ffffff !important;
@@ -477,7 +486,7 @@ body, gradio-app {
   display: flex !important;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.6rem 0.85rem !important;
+  padding: 0.45rem 0.85rem !important;
   color: var(--ink) !important;
   font-weight: 700;
   background: var(--paper) !important;
@@ -521,7 +530,7 @@ body, gradio-app {
 }
 #run-button {
   width: 100%;
-  min-height: 46px;
+  min-height: 42px;
   border: 1px solid #cf5a22 !important;
   border-radius: 3px !important;
   background: var(--orange) !important;
@@ -541,7 +550,7 @@ body, gradio-app {
 }
 #run-status textarea, #run-status input { font-size: 0.88rem; }
 #results-empty {
-  padding: 0.95rem 1.1rem;
+  padding: 0.7rem 1rem;
   border: 1px dashed var(--line);
   border-radius: 6px;
   background: var(--paper);
@@ -727,7 +736,7 @@ body, gradio-app {
    this Chromium does not re-evaluate `:has()` when `:checked` flips, so the
    card would stay stuck in its previous state.) */
 .choose-label {
-  margin: 0.35rem 0 0.1rem;
+  margin: 0.15rem 0 0.05rem;
   color: var(--ink);
   font-size: 0.86rem;
   font-weight: 700;
@@ -759,9 +768,9 @@ body, gradio-app {
   display: flex !important;
   align-items: center;
   gap: 0.7rem;
-  min-height: 54px;
+  min-height: 44px;
   margin: 0 !important;
-  padding: 0.75rem 0.95rem !important;
+  padding: 0.5rem 0.85rem !important;
   background: var(--paper);
   color: var(--ink) !important;
   font-weight: 700 !important;
@@ -794,7 +803,7 @@ body, gradio-app {
   border-color: var(--orange) !important;
   background-color: var(--orange) !important;
 }
-.output-card > div:not(:first-child) { padding: 0.7rem 0.85rem !important; }
+.output-card > div:not(:first-child) { padding: 0.55rem 0.85rem !important; }
 .output-card .card-note {
   margin: 0;
   color: var(--muted);
