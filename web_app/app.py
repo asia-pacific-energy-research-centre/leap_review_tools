@@ -750,7 +750,11 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
 }
 #download-row > div > label svg { display: none !important; }
 #results-card .result-links { margin-bottom: 0.25rem; }
-#results-card:has(#results-empty) { display: none !important; }
+/* Keep the whole Results card out of the page until a result link, warning, or
+   downloadable file has actually been returned. */
+#results-card:not(:has(#result-links .result-links)):not(:has(.file-preview)) {
+  display: none !important;
+}
 .results-summary {
   display: flex;
   align-items: baseline;
@@ -1740,10 +1744,9 @@ def _locked_dashboard_html(
 OUTPUT_WORKBOOK_LABEL = "Balance review workbook"
 OUTPUT_DASHBOARD_LABEL = "Dashboard"
 
-RESULTS_EMPTY_HTML = (
-    "<div id='results-empty'>Nothing yet. Choose what to build above and press "
-    "Run. Your workbook and dashboard links will appear here.</div>"
-)
+# An empty result is represented by empty HTML. The Results card is revealed
+# only when a callback returns a result link, warning, or downloadable file.
+RESULTS_EMPTY_HTML = ""
 
 
 def _status_html(message: str, *, tone: str = "") -> str:
