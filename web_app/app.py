@@ -372,6 +372,12 @@ body, gradio-app {
   border-radius: 6px 0 0 6px !important;
   background: #f6f9fc !important;
 }
+#upload-card > #balance-upload:not(:has(table.file-preview)) {
+  grid-column: 1 / -1;
+  border-right: 1px solid #c4d2e0 !important;
+  border-radius: 6px !important;
+}
+#upload-card > #balance-upload:not(:has(table.file-preview)) > button { width: 100%; }
 #upload-card > #export-readout {
   grid-column: 2;
   align-self: stretch;
@@ -389,6 +395,7 @@ body, gradio-app {
   border: 0;
   background: transparent;
 }
+#upload-card > #export-readout:not(:has(.export-readout)) { display: none !important; }
 /* Gradio's dropzone offers two ways in — drag here, or click — and renders the
    "- or -" between them. The choice is noise when only one route is obvious in
    a browser, and its orange block label reads as the button while the real
@@ -589,6 +596,14 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
 .export-readout.is-error { border-left-color: #c0392b; background: #fdf4f3; }
 .export-readout.is-error .readout-label { color: #a8342a; }
 .export-readout.is-error p { color: #7c3b34; }
+#balance-upload table.file-preview {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+#balance-upload table.file-preview td { background: transparent !important; }
+#export-readout .readout-chips { gap: 0; }
+#export-readout .readout-chip { border: 0; background: transparent; }
 /* The ESTO override is a genuine disclosure: say what opening it does, and
    keep the affordance on the left where the label is read from. */
 /* Every disclosure on the page says what opening it does and puts the
@@ -2152,13 +2167,9 @@ EXTERNAL_LINK_ICON = (
 )
 
 
-EXPORT_PROMPT_HTML = (
-    "<div class='export-readout is-waiting'>"
-    "<span class='readout-label'>Waiting for your export</span>"
-    "<p>Add one or several above; the economy and scenario are read from "
-    "each. One export also builds the workbook.</p>"
-    "</div>"
-)
+# The upload button is the complete empty state. Once a file arrives,
+# inspect_uploaded_export fills the right side of the merged export strip.
+EXPORT_PROMPT_HTML = ""
 
 
 def _readout_chip(label: str, value: str) -> str:

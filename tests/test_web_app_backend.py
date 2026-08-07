@@ -209,6 +209,7 @@ def test_clearing_the_export_returns_one_value_per_wired_output():
     values = clear_uploaded_export()
 
     assert len(values) == 5
-    # The file field is emptied and the prompt comes back.
+    # The file field is emptied and the merged export strip disappears until
+    # another file is selected.
     assert values[0] is None
-    assert "export-readout" in values[1]
+    assert values[1] == ""
