@@ -67,7 +67,7 @@ GUIDE_CSS = """
   display: flex; flex-direction: column;
   overflow: hidden; padding: 0.7rem 1.15rem 0.75rem; border: 1px solid #cbd8e7; border-radius: 9px;
   background: #fff; color: #173452; box-shadow: 0 22px 70px #0d254c55; }
-#leap-guide-popover.guide-has-image { width: min(1450px, calc(100vw - 2rem)); }
+#leap-guide-popover.guide-has-image { width: min(1760px, calc(100vw - 1.5rem)); }
 #leap-guide-popover.guide-image-tall { width: min(760px, calc(100vw - 2rem)); }
 #leap-guide-popover[hidden], #leap-guide-backdrop[hidden] { display: none !important; }
 .leap-guide-progress { color: #65788d; font-size: .72rem; letter-spacing: .08em; flex: 0 0 auto; }
@@ -79,7 +79,7 @@ GUIDE_CSS = """
 #leap-guide-copy { margin: 0 0 .5rem; color: #65788d; font-size: .88rem; line-height: 1.45;
   flex: 0 1 auto; max-height: 38vh; overflow: auto; }
 #leap-guide-image { display: block; width: 100%; flex: 1 1 auto; min-height: 90px;
-  max-height: 56vh; object-fit: contain;
+  max-height: 62vh; object-fit: contain;
   object-position: center; padding: .4rem; border: 1px solid #cbd8e7;
   border-radius: 5px; background: #f3f6fa; }
 #leap-guide-image[hidden] { display: none; }
