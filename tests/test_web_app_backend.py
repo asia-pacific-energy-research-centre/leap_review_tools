@@ -82,8 +82,16 @@ def test_diagnostics_bundle_contains_workbooks_diagnostics_dashboard_and_logs(
     (run_directory / "run_manifest.json").write_text("{}")
     dashboard = tmp_path / "dashboard"
     dashboard.mkdir()
-    (dashboard / "index.html").write_text("<html></html>")
-    (dashboard / "page.html").write_text("<html>page</html>")
+    dashboards = dashboard / "dashboards"
+    dashboards.mkdir()
+    (dashboards / "index.html").write_text("<html></html>")
+    (dashboards / "page.html").write_text("<html>page</html>")
+    chart_bundles = dashboard / "chart_bundles"
+    chart_bundles.mkdir()
+    (chart_bundles / "page.js").write_text("console.log('chart');")
+    (dashboard / "OPEN THE DASHBOARD.html").write_text(
+        '<meta http-equiv="refresh" content="0; url=dashboards/index.html">'
+    )
     logs = tmp_path / "logs"
     logs.mkdir()
     (logs / "run.log").write_text("completed")
@@ -94,7 +102,7 @@ def test_diagnostics_bundle_contains_workbooks_diagnostics_dashboard_and_logs(
         workbook_paths=[workbook],
         diagnostics_directory=diagnostics,
         run_directory=run_directory,
-        dashboard_directory=dashboard,
+        dashboard_directory=dashboards,
         log_directory=logs,
     )
 
@@ -103,8 +111,10 @@ def test_diagnostics_bundle_contains_workbooks_diagnostics_dashboard_and_logs(
             "workbooks/review.xlsx",
             "diagnostics/leap_balance_source_review.csv",
             "run_manifest.json",
-            "dashboard/index.html",
-            "dashboard/page.html",
+            "dashboard/dashboards/index.html",
+            "dashboard/dashboards/page.html",
+            "dashboard/chart_bundles/page.js",
+            "dashboard/OPEN THE DASHBOARD.html",
             "logs/run.log",
         }
 

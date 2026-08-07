@@ -1530,7 +1530,7 @@ def _write_diagnostics_bundle(
     dashboard_directory: Path | None = None,
     log_directory: Path | None = None,
 ) -> None:
-    """Package derived diagnostics and the workbook for optional download."""
+    """Package derived diagnostics, workbooks, and a self-contained dashboard."""
     with zipfile.ZipFile(bundle_path, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
         for workbook_path in workbook_paths:
             bundle.write(workbook_path, arcname=f"workbooks/{workbook_path.name}")
@@ -1542,9 +1542,30 @@ def _write_diagnostics_bundle(
             if path.is_file():
                 bundle.write(path, arcname=name)
         if dashboard_directory is not None and dashboard_directory.is_dir():
+            # Dashboard pages refer to chart bundles with ../chart_bundles/.
+            # Keep that sibling relationship inside the ZIP so extracting the
+            # dashboard folder preserves the links used by the HTML pages.
+            dashboard_root = dashboard_directory.parent
+            chart_directory = dashboard_root / "chart_bundles"
+            if not chart_directory.is_dir():
+                dashboard_root = dashboard_directory
+                chart_directory = dashboard_root / "chart_bundles"
             for path in sorted(dashboard_directory.rglob("*")):
                 if path.is_file():
-                    bundle.write(path, arcname=f"dashboard/{path.relative_to(dashboard_directory)}")
+                    bundle.write(
+                        path,
+                        arcname=f"dashboard/dashboards/{path.relative_to(dashboard_directory)}",
+                    )
+            if chart_directory.is_dir():
+                for path in sorted(chart_directory.rglob("*")):
+                    if path.is_file():
+                        bundle.write(
+                            path,
+                            arcname=f"dashboard/chart_bundles/{path.relative_to(chart_directory)}",
+                        )
+            shortcut = dashboard_root / "OPEN THE DASHBOARD.html"
+            if shortcut.is_file():
+                bundle.write(shortcut, arcname="dashboard/OPEN THE DASHBOARD.html")
         if log_directory is not None and log_directory.is_dir():
             for path in sorted(log_directory.glob("*.log")):
                 bundle.write(path, arcname=f"logs/{path.name}")
