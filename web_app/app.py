@@ -569,6 +569,8 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
    out of reach. */
 .output-card.is-unavailable { opacity: 0.45; }
 .output-card.is-unavailable > div:first-child label { cursor: not-allowed; }
+#workbook-card:has(input:disabled) { opacity: 0.45; }
+#workbook-card:has(input:disabled) > div:first-child label { cursor: not-allowed; }
 .output-card.is-unavailable .card-note::after {
   content: " Unavailable for a multi-file upload.";
   color: #a8342a;
