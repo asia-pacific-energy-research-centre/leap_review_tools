@@ -564,6 +564,37 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
 .readout-chip strong { color: #1f3d5b; font-size: 0.98rem; }
 .export-readout.is-waiting { border-left-color: #aebfd2; }
 .export-readout.is-ready { border-left-color: #2f8f5b; background: #f3faf6; }
+.results-guidance {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin: 0.1rem 0 0.2rem;
+}
+.results-guidance > div {
+  min-width: 0;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #d4dfeb;
+  border-left: 3px solid #8da6bf;
+  border-radius: 4px;
+  background: #f8fbfe;
+}
+.results-guidance strong {
+  display: block;
+  color: var(--ink);
+  font-size: 0.76rem;
+  line-height: 1.2;
+}
+.results-guidance span {
+  display: block;
+  margin-top: 0.18rem;
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+.results-guidance .guidance-archive { border-left-color: var(--orange); }
+@media (max-width: 900px) {
+  .results-guidance { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .export-readout.is-ready .readout-label { color: #2f7a52; }
 .export-readout.is-partial { border-left-color: #e0912f; background: #fdf8f0; }
 .export-readout.is-partial .readout-label { color: #b3701c; }
@@ -3271,7 +3302,12 @@ def create_app():
             gr.HTML(
                 """<div class="step-heading"><span class="step-kicker">02 · Results</span>
                   <strong>Your dashboard and workbooks</strong>
-                  <p>The dashboard opens in a new tab; the workbooks download.</p>
+                  <div class="results-guidance">
+                    <div><strong>Dashboard</strong><span>Opens in a new tab.</span></div>
+                    <div><strong>Workbooks</strong><span>Download below. Server download files may be cleared after about 48 hours.</span></div>
+                    <div><strong>Saved dashboards</strong><span>Up to three recent snapshots stay in this browser. They do not expire on a timer, but can disappear if browser site data is cleared, storage is limited, or you switch browser or device.</span></div>
+                    <div class="guidance-archive"><strong>Need a durable copy?</strong><span>Download <strong>Complete run archive</strong> below.</span></div>
+                  </div>
                 </div>"""
             )
             result_links = gr.HTML(value=RESULTS_EMPTY_HTML, elem_id="result-links")
