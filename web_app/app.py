@@ -353,6 +353,7 @@ body, gradio-app {
   display: grid !important;
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.6fr);
   align-items: stretch;
+  column-gap: 0;
 }
 #upload-card > .block:first-child,
 #upload-card > #export-actions,
@@ -362,14 +363,32 @@ body, gradio-app {
 #upload-card > #run-status,
 #upload-card > #calculator-holder,
 #upload-card > #technical-details { grid-column: 1 / -1; }
-#upload-card > #balance-upload { grid-column: 1; min-width: 0; }
+#upload-card > #balance-upload {
+  grid-column: 1;
+  min-width: 0;
+  padding: 0.35rem 0.45rem !important;
+  border: 1px solid #c4d2e0 !important;
+  border-right: 0 !important;
+  border-radius: 6px 0 0 6px !important;
+  background: #f6f9fc !important;
+}
 #upload-card > #export-readout {
   grid-column: 2;
   align-self: stretch;
   min-width: 0;
   margin: 0;
+  padding: 0.35rem 0.45rem !important;
+  border: 1px solid #c4d2e0 !important;
+  border-left: 0 !important;
+  border-radius: 0 6px 6px 0 !important;
+  background: #f6f9fc !important;
 }
-#export-readout .export-readout { height: 100%; box-sizing: border-box; }
+#export-readout .export-readout {
+  height: 100%;
+  box-sizing: border-box;
+  border: 0;
+  background: transparent;
+}
 /* Gradio's dropzone offers two ways in — drag here, or click — and renders the
    "- or -" between them. The choice is noise when only one route is obvious in
    a browser, and its orange block label reads as the button while the real
@@ -564,37 +583,6 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
 .readout-chip strong { color: #1f3d5b; font-size: 0.98rem; }
 .export-readout.is-waiting { border-left-color: #aebfd2; }
 .export-readout.is-ready { border-left-color: #2f8f5b; background: #f3faf6; }
-.results-guidance {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.55rem;
-  margin: 0.1rem 0 0.2rem;
-}
-.results-guidance > div {
-  min-width: 0;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid #d4dfeb;
-  border-left: 3px solid #8da6bf;
-  border-radius: 4px;
-  background: #f8fbfe;
-}
-.results-guidance strong {
-  display: block;
-  color: var(--ink);
-  font-size: 0.76rem;
-  line-height: 1.2;
-}
-.results-guidance span {
-  display: block;
-  margin-top: 0.18rem;
-  color: var(--muted);
-  font-size: 0.74rem;
-  line-height: 1.35;
-}
-.results-guidance .guidance-archive { border-left-color: var(--orange); }
-@media (max-width: 900px) {
-  .results-guidance { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
 .export-readout.is-ready .readout-label { color: #2f7a52; }
 .export-readout.is-partial { border-left-color: #e0912f; background: #fdf8f0; }
 .export-readout.is-partial .readout-label { color: #b3701c; }
@@ -743,6 +731,18 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
 }
 #download-row > div > label svg { display: none !important; }
 #results-card .result-links { margin-bottom: 0.25rem; }
+#results-card:has(#results-empty) { display: none !important; }
+.results-summary {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.7rem;
+  margin: 0;
+}
+.results-summary strong { color: var(--ink); font-size: 0.95rem; }
+.results-summary span,
+.results-summary small { color: var(--muted); font-size: 0.76rem; line-height: 1.35; }
+.results-summary small { flex-basis: 100%; }
 #clear-dashboards {
   align-self: end;
   max-width: 210px;
@@ -1052,6 +1052,11 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
   #upload-card { display: flex !important; }
   #upload-card > #balance-upload,
   #upload-card > #export-readout { width: 100%; }
+  #upload-card > #balance-upload,
+  #upload-card > #export-readout {
+    border: 1px solid #c4d2e0 !important;
+    border-radius: 6px !important;
+  }
   #advanced-options > button::after { display: none; }
   #clear-dashboards { align-self: stretch; max-width: none; }
 }
@@ -3300,13 +3305,12 @@ def create_app():
         )
         with gr.Column(elem_id="results-card"):
             gr.HTML(
-                """<div class="step-heading"><span class="step-kicker">02 · Results</span>
-                  <strong>Your dashboard and workbooks</strong>
-                  <div class="results-guidance">
-                    <div><strong>Dashboard</strong><span>Opens in a new tab.</span></div>
-                    <div><strong>Workbooks</strong><span>Download below. Server download files may be cleared after about 48 hours.</span></div>
-                    <div><strong>Saved dashboards</strong><span>Up to three recent snapshots stay in this browser. They do not expire on a timer, but can disappear if browser site data is cleared, storage is limited, or you switch browser or device.</span></div>
-                    <div class="guidance-archive"><strong>Need a durable copy?</strong><span>Download <strong>Complete run archive</strong> below.</span></div>
+                """<div class="step-heading">
+                  <div class="results-summary">
+                    <span class="step-kicker">02 · Results</span>
+                    <strong>Your dashboard and workbooks</strong>
+                    <span>Dashboard links open in a new tab; workbook files download below.</span>
+                    <small>Saved dashboards keep up to three recent snapshots in this browser and do not expire on a timer. Browser data or storage limits can remove them; download <strong>Complete run archive</strong> for a durable copy. Server download files may be cleared after about 48 hours.</small>
                   </div>
                 </div>"""
             )
