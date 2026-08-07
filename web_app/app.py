@@ -688,6 +688,14 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
   opacity: 1 !important;
   box-shadow: none !important;
 }
+#run-button[aria-disabled="true"] {
+  background: #d9a68c !important;
+  border-color: #d9a68c !important;
+  color: #ffffff !important;
+  cursor: not-allowed !important;
+  opacity: 1 !important;
+  box-shadow: none !important;
+}
 #run-status textarea, #run-status input { font-size: 0.88rem; }
 #results-empty {
   padding: 0.55rem 1rem;
@@ -1158,6 +1166,32 @@ APP_JS = """
     const workbookCard = document.querySelector('#workbook-card');
     if (workbookCard) workbookCard.classList.toggle('is-unavailable', multi);
   };
+  const syncRunButtonState = () => {
+    const button = runButtonEl();
+    if (!button || document.body.classList.contains('run-active')) return;
+    const fileInput = document.querySelector('#balance-upload input[type="file"]');
+    const yearInput = document.querySelector('#year-input textarea, #year-input input');
+    const ready = !!(fileInput && fileInput.files && fileInput.files.length &&
+      yearInput && yearInput.value.trim());
+    if (ready) button.removeAttribute('disabled');
+    else button.setAttribute('disabled', '');
+    button.setAttribute('aria-disabled', String(!ready));
+    button.title = ready ? 'Run review' : 'Upload an export and enter a review year first';
+  };
+  const guardEmptyRun = () => {
+    if (document.body.dataset.emptyRunGuardBound === '1') return;
+    document.body.dataset.emptyRunGuardBound = '1';
+    document.addEventListener('click', (event) => {
+      const button = event.target.closest('#run-button');
+      if (!button || button.getAttribute('aria-disabled') !== 'true') return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const status = document.querySelector('#run-status');
+      if (status) status.innerHTML = '<span class="result-hint is-warning">Upload an export and enter at least one review year before running.</span>';
+    }, true);
+  };
+  document.addEventListener('input', syncRunButtonState, true);
+  document.addEventListener('change', syncRunButtonState, true);
   document.addEventListener('change', (event) => {
     if (event.target.matches('.output-card input[type="checkbox"]')) syncOutputCards();
   }, true);
@@ -1234,6 +1268,8 @@ APP_JS = """
     placeGuideLaunch();
     addSingleFileRemove();
     drawDownloadIcons();
+    syncRunButtonState();
+    guardEmptyRun();
     const button = runButtonEl();
     const animation = document.querySelector('#calculator-animation');
     const status = document.querySelector('#run-status textarea, #run-status input');
@@ -1868,12 +1904,17 @@ def update_runtime_notes(
     want_workbook: object,
     want_dashboard: object,
     balance_export_workbook: object = None,
-) -> tuple[str, str]:
+) -> tuple[str, str, object]:
     """Re-quote the estimates for the years typed and the economies uploaded."""
+    import gradio as gr
+
     profile = _hosted_runtime_profile()
     years = max(len(_requested_years(year)), 1)
     uploads = without_duplicates(read_uploads(balance_export_workbook))
     economies = max(len(group_by_economy(uploads)), 1)
+    ready_to_run = bool(_uploaded_paths(balance_export_workbook)) and bool(
+        _requested_years(year)
+    )
     return (
         _card_runtime_note_html(profile, "workbook", years=years),
         _calculator_html(
@@ -1882,6 +1923,7 @@ def update_runtime_notes(
             years=years,
             economies=economies,
         ),
+        gr.Button("Run", interactive=ready_to_run),
     )
 
 
@@ -3277,6 +3319,7 @@ def create_app():
             run_button = gr.Button(
                 "Run",
                 variant="primary",
+                interactive=False,
                 elem_id="run-button",
             )
             status = gr.HTML(value="", elem_id="run-status")
@@ -3386,7 +3429,7 @@ def create_app():
             _control.change(
                 fn=update_runtime_notes,
                 inputs=[year, want_workbook, want_dashboard, balance_export_workbook],
-                outputs=[workbook_runtime_note, calculator_animation],
+                outputs=[workbook_runtime_note, calculator_animation, run_button],
             )
         clear_export_button.click(
             fn=clear_uploaded_export,
