@@ -345,6 +345,31 @@ body, gradio-app {
 #upload-row { align-items: center; }
 #upload-card .step-heading, #results-card .step-heading { margin: 0 0 0.2rem; }
 #upload-card .step-heading p, #results-card .step-heading p { font-size: 0.8rem; }
+/* The file preview and the export readout describe the same files. Keep them
+   in one two-column band so every uploaded export occupies one visual row:
+   the native preview retains its download/remove actions on the left and the
+   parsed economy, scenario, and year range sit beside it on the right. */
+#upload-card {
+  display: grid !important;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.6fr);
+  align-items: stretch;
+}
+#upload-card > .block:first-child,
+#upload-card > #export-actions,
+#upload-card > #component-11,
+#upload-card > #outputs-row,
+#upload-card > #run-button,
+#upload-card > #run-status,
+#upload-card > #calculator-holder,
+#upload-card > #technical-details { grid-column: 1 / -1; }
+#upload-card > #balance-upload { grid-column: 1; min-width: 0; }
+#upload-card > #export-readout {
+  grid-column: 2;
+  align-self: stretch;
+  min-width: 0;
+  margin: 0;
+}
+#export-readout .export-readout { height: 100%; box-sizing: border-box; }
 /* Gradio's dropzone offers two ways in — drag here, or click — and renders the
    "- or -" between them. The choice is noise when only one route is obvious in
    a browser, and its orange block label reads as the button while the real
@@ -993,6 +1018,9 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
   .gradio-container { width: calc(100% - 1rem) !important; padding-top: 0.5rem !important; }
   #upload-row, #action-row, #download-row, #dashboard-controls { flex-direction: column; }
   #upload-row > div, #run-button { min-width: 100%; }
+  #upload-card { display: flex !important; }
+  #upload-card > #balance-upload,
+  #upload-card > #export-readout { width: 100%; }
   #advanced-options > button::after { display: none; }
   #clear-dashboards { align-self: stretch; max-width: none; }
 }
