@@ -351,7 +351,7 @@ body, gradio-app {
    parsed economy, scenario, and year range sit beside it on the right. */
 #upload-card {
   display: grid !important;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.6fr);
+  grid-template-columns: minmax(0, 1fr) 270px;
   align-items: stretch;
   column-gap: 0;
 }
@@ -364,12 +364,13 @@ body, gradio-app {
 #upload-card > #calculator-holder,
 #upload-card > #technical-details { grid-column: 1 / -1; }
 #upload-card > #balance-upload {
-  grid-column: 1;
+  grid-column: 2;
+  grid-row: 2;
   min-width: 0;
   padding: 0.35rem 0.45rem !important;
   border: 1px solid #c4d2e0 !important;
-  border-right: 0 !important;
-  border-radius: 6px 0 0 6px !important;
+  border-left: 0 !important;
+  border-radius: 0 6px 6px 0 !important;
   background: #f6f9fc !important;
 }
 #upload-card > #balance-upload:not(:has(table.file-preview)) {
@@ -379,14 +380,15 @@ body, gradio-app {
 }
 #upload-card > #balance-upload:not(:has(table.file-preview)) > button { width: 100%; }
 #upload-card > #export-readout {
-  grid-column: 2;
+  grid-column: 1;
+  grid-row: 2;
   align-self: stretch;
   min-width: 0;
   margin: 0;
   padding: 0.35rem 0.45rem !important;
   border: 1px solid #c4d2e0 !important;
-  border-left: 0 !important;
-  border-radius: 0 6px 6px 0 !important;
+  border-right: 0 !important;
+  border-radius: 6px 0 0 6px !important;
   background: #f6f9fc !important;
 }
 #export-readout .export-readout {
@@ -597,10 +599,12 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
 .export-readout.is-error .readout-label { color: #a8342a; }
 .export-readout.is-error p { color: #7c3b34; }
 #balance-upload table.file-preview {
+  width: 100% !important;
   border: 0 !important;
   border-radius: 0 !important;
   background: transparent !important;
 }
+#balance-upload table.file-preview td.filename { display: none !important; }
 #balance-upload table.file-preview td { background: transparent !important; }
 #export-readout .readout-chips { gap: 0; }
 #export-readout .readout-chip { border: 0; background: transparent; }
