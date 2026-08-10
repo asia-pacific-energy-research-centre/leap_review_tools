@@ -26,6 +26,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+# Running ``python web_app/app.py`` puts only ``web_app/`` on ``sys.path``.
+# Add the repository root before importing sibling package modules so the
+# documented direct-file launch behaves the same as ``python -m web_app.app``.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from web_app.guide_overlay import GUIDE_CSS, GUIDE_HTML, GUIDE_JS
 from web_app.runtime_profile import (
     estimate_runtime,

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 import time
 import zipfile
 from pathlib import Path
@@ -17,6 +19,22 @@ from web_app.app import (
     _locked_dashboard_html,
     _write_diagnostics_bundle,
 )
+
+
+def test_documented_direct_file_launch_resolves_package_imports() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import runpy; runpy.run_path('web_app/app.py')",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_dashboard_snapshot_helpers_round_trip_and_filter_records() -> None:
