@@ -180,6 +180,12 @@ multiple review years can be entered as `2022,2030,2040`, each requested year
 produces its own workbook, the optional ESTO table is passed to both diagnostics
 and dashboard generation, and dashboard year bounds are configurable.
 
+The in-app guide starts with a text-only purpose card, followed by the LEAP
+initialisation flow diagram and a separate four-step review sequence. It advises
+baseline-seed users to review one year in the workbook first, then use the
+dashboard to inspect trends across years. The export card explains that a LEAP
+Energy Balance export is the input used to build those outputs.
+
 The old CLI-only `info`, `list`, `selfcheck`, repository-update, and
 existing-diagnostics/comparison-data escape-hatch commands are not separate web
 buttons. Repository preflight runs automatically at submission, and the web
