@@ -1900,13 +1900,6 @@ def _inline_dashboard_chart_bundle(page_path: Path, page_html: str) -> str:
     return rendered
 
 
-def _dashboard_page_title(page_name: str) -> str:
-    """Return a readable page name for the generated dashboard index."""
-    stem = re.sub(r"\.html$", "", str(page_name), flags=re.IGNORECASE)
-    stem = re.sub(r"^\d+[_-]", "", stem)
-    return stem.replace("_", " ").replace("-", " ").strip().capitalize() or page_name
-
-
 def _publish_dashboard_pages(
     pages: dict[str, str],
     *,
@@ -1915,7 +1908,7 @@ def _publish_dashboard_pages(
     years: object,
     scenarios: object = (),
 ) -> str | None:
-    """Write dashboard pages to a served folder and return the index URL.
+    """Write dashboard pages and return the Energy balance overview URL.
 
     The pages are the same compressed snapshots kept in browser storage, so a
     saved review reopens through exactly the path a fresh one does. Serving
@@ -1935,9 +1928,7 @@ def _publish_dashboard_pages(
         available = [scenario] if str(scenario).strip() else []
     modes = {_scenario_mode(name) for name in available}
     allow_switching = len({mode for mode in modes if mode}) > 1
-    scenario_label = ", ".join(dict.fromkeys(available)) or str(scenario)
 
-    links = []
     for page_name in sorted(pages):
         page_html = _decompress_dashboard_html(str(pages[page_name]))
         safe_name = Path(str(page_name)).name
@@ -1947,35 +1938,17 @@ def _publish_dashboard_pages(
             ),
             encoding="utf-8",
         )
-        links.append(
-            f'<li><a href="{html.escape(safe_name)}">'
-            f"{html.escape(_dashboard_page_title(safe_name))}</a></li>"
-        )
 
-    index_path = run_directory / "index.html"
-    index_path.write_text(
-        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
-        "<title>LEAP dashboard</title><style>"
-        "body{font:15px/1.5 'Segoe UI',Arial,sans-serif;color:#1d2d3d;"
-        "background:#edf3fa;margin:0;padding:2rem}"
-        "h1{color:#1f3d5b;margin:0 0 .25rem}"
-        ".meta{color:#5b7086;margin:0 0 1.5rem}"
-        "ul{list-style:none;padding:0;display:flex;flex-wrap:wrap;gap:.6rem;max-width:900px}"
-        "li{flex:1 1 220px}"
-        "a{display:block;padding:.8rem 1rem;border:1px solid #c4d2e0;border-left:4px solid var(--orange);"
-        "border-radius:3px;background:#fff;color:#1f3d5b;font-weight:600;text-decoration:none}"
-        "a:hover{background:#fff6f1}"
-        "</style></head><body>"
-        "<h1>LEAP dashboard</h1>"
-        # No year here. It is the workbook's review year, which says nothing
-        # about a dashboard: the dashboard draws its own full year range, so
-        # naming one year invited the reader to think it was filtered to it.
-        f"<p class='meta'>{html.escape(str(economy))} &nbsp;|&nbsp; "
-        f"{html.escape(scenario_label)}</p>"
-        f"<ul>{''.join(links)}</ul></body></html>",
-        encoding="utf-8",
+    page_names = [Path(str(page_name)).name for page_name in pages]
+    preferred_page = next(
+        (
+            page_name
+            for page_name in ("total_demand.html", "energy_balance_overview.html")
+            if page_name in page_names
+        ),
+        sorted(page_names)[0],
     )
-    return f"/gradio_api/file={index_path.as_posix()}"
+    return f"/gradio_api/file={(run_directory / preferred_page).as_posix()}"
 
 
 def _scenario_mode(scenario: str) -> str:

@@ -52,7 +52,9 @@ This lets the same browser reopen earlier economy/scenario runs without a
 persistent Hugging Face volume. The full ZIP remains a download for the current
 run and should be saved by the user if they need an external archive. The app
 retains the three most recent browser-local snapshots and provides a clear
-button for removing them from that browser.
+button for removing them from that browser. Opening a fresh or saved dashboard
+goes directly to its Energy balance overview; the web app does not insert a
+second page-selection launcher in front of the generated navigation.
 
 ## Interface design
 

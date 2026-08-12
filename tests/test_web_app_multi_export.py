@@ -124,7 +124,7 @@ def test_two_scenarios_for_one_economy_stay_together(tmp_path):
 
 
 def _publish(tmp_path, monkeypatch, *, scenario, scenarios):
-    """Publish one stub page and return its markup and index line."""
+    """Publish one stub page and return its markup."""
     from web_app import app
 
     monkeypatch.setattr(app, "DASHBOARD_SERVE_ROOT", tmp_path / "served")
@@ -136,36 +136,48 @@ def _publish(tmp_path, monkeypatch, *, scenario, scenarios):
         years="2022",
         scenarios=scenarios,
     )
-    served = Path(url.split("file=")[1]).parent
-    index = (served / "index.html").read_text(encoding="utf-8")
-    meta = re.search(r"class='meta'>(.*?)</p>", index).group(1)
-    return (served / "overview.html").read_text(encoding="utf-8"), meta
+    served_page = Path(url.split("file=")[1])
+    return served_page.read_text(encoding="utf-8"), served_page
 
 
 def test_an_economy_with_both_scenarios_keeps_its_toggle(tmp_path, monkeypatch):
-    page, meta = _publish(
+    page, served_page = _publish(
         tmp_path, monkeypatch, scenario="Reference", scenarios=["Reference", "Target"]
     )
 
     assert ".scenario-toggle" not in page.split("</style>")[0]
     assert 'var mode = ""' in page
-    assert "Reference, Target" in meta
+    assert served_page.name == "overview.html"
 
 
 def test_an_economy_with_one_scenario_is_pinned_to_it(tmp_path, monkeypatch):
     """The other view would show comparators with no LEAP series behind them."""
-    page, meta = _publish(tmp_path, monkeypatch, scenario="Target", scenarios=["Target"])
+    page, served_page = _publish(
+        tmp_path, monkeypatch, scenario="Target", scenarios=["Target"]
+    )
 
     assert ".scenario-toggle { display:none" in page
     assert 'var mode = "tgt"' in page
-    assert "Target" in meta
+    assert served_page.name == "overview.html"
 
 
-def test_the_index_never_names_a_year(tmp_path, monkeypatch):
-    """A dashboard draws its own range; the workbook's review year is not it."""
-    _, meta = _publish(tmp_path, monkeypatch, scenario="Target", scenarios=["Target"])
+def test_dashboard_opens_energy_balance_overview_without_launcher(tmp_path, monkeypatch):
+    from web_app import app
 
-    assert "2022" not in meta
+    monkeypatch.setattr(app, "DASHBOARD_SERVE_ROOT", tmp_path / "served")
+    page = app._compress_dashboard_html("<html><body>overview</body></html>")
+    other = app._compress_dashboard_html("<html><body>buildings</body></html>")
+
+    url = _publish_dashboard_pages(
+        {"buildings.html": other, "total_demand.html": page},
+        economy="05_PRC",
+        scenario="Target",
+        years="2022",
+    )
+    served_page = Path(url.split("file=")[1])
+
+    assert served_page.name == "total_demand.html"
+    assert not (served_page.parent / "index.html").exists()
 
 
 @pytest.mark.integration
