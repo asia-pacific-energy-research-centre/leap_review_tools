@@ -33,3 +33,11 @@ def test_guide_copy_uses_plain_punctuation() -> None:
 def test_export_card_explains_why_the_export_is_needed() -> None:
     assert "title: 'Create the export used by this app'" in GUIDE_JS
     assert "This is the input the app reads to create the dashboard" in GUIDE_JS
+
+
+def test_export_card_keeps_fuel_guidance_in_a_two_image_carousel() -> None:
+    assert "Under Columns, choose Fuels." in GUIDE_JS
+    assert "Do not change the fuel groupings in your model or select Fuel Groupings here" in GUIDE_JS
+    assert "Open Columns and select Fuels instead of Fuel Groupings." in GUIDE_JS
+    assert "currentImages.length > 1" in GUIDE_JS
+    assert "Click the image to continue" in GUIDE_HTML

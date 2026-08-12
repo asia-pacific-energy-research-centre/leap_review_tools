@@ -2,6 +2,9 @@
 
 ## Completed
 
+- 2026-08-12: Add a second, click-through image to the LEAP export guide step
+  that tells users to keep model fuel groupings unchanged and choose **Fuels**
+  under **Columns**.
 - 2026-08-12: Clear the previous run's status when a valid new run starts so
   an obsolete failure cannot remain visible beside active progress.
 - 2026-08-12: Detect upload previews made stale by a Space restart, restore the
