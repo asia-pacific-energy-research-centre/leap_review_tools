@@ -2,6 +2,9 @@
 
 ## Completed
 
+- 2026-08-12: Bundle and pass the published ESTO, LEAP and 9th provenance maps
+  into web-dashboard renders, and distinguish omitted map files from genuine
+  mapping-generation mismatches in the dashboard guide.
 - 2026-08-12: Add a second, click-through image to the LEAP export guide step
   that tells users to keep model fuel groupings unchanged and choose **Fuels**
   under **Columns**.
