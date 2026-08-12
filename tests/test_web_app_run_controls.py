@@ -19,6 +19,8 @@ def test_browser_merges_file_actions_and_places_cancel_with_progress() -> None:
     """The visible controls belong to the rows and progress strip they affect."""
     assert "const mergeUploadControls" in app.APP_JS
     assert "parsed.appendChild(actions)" in app.APP_JS
+    assert "holder.classList.toggle('is-merged-preview', hasMergedRows)" in app.APP_JS
+    assert "holder.classList.add('is-merged-preview')" not in app.APP_JS
     assert "const placeCancelRun" in app.APP_JS
     assert "animation.appendChild(cancel)" in app.APP_JS
 

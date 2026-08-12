@@ -1382,7 +1382,12 @@ APP_JS = """
     const holder = document.querySelector('#balance-upload');
     const parsedRows = [...document.querySelectorAll('#export-readout .upload-row')];
     const nativeRows = [...document.querySelectorAll('#balance-upload table.file-preview tr.file')];
-    if (!holder || !parsedRows.length || !nativeRows.length) return;
+    if (!holder) return;
+    const hasMergedRows = !!(parsedRows.length && nativeRows.length);
+    // Clearing the export removes both row sets. Undo the off-screen treatment
+    // at the same moment so Gradio's original upload chooser becomes visible.
+    holder.classList.toggle('is-merged-preview', hasMergedRows);
+    if (!hasMergedRows) return;
     parsedRows.forEach((parsed, index) => {
       const native = nativeRows[index];
       if (!native) return;
@@ -1415,7 +1420,6 @@ APP_JS = """
       }
       parsed.appendChild(actions);
     });
-    holder.classList.add('is-merged-preview');
   };
   const install = () => {
     relabelUpload();

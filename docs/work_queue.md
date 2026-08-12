@@ -17,6 +17,8 @@
   explains.
 - 2026-08-12: Give complete run archives descriptive, timestamped filenames
   and remove the redundant archive explanation from Results.
+- 2026-08-12: Restore the primary upload chooser immediately after **Use a
+  different export** clears the merged file row.
 
 ## Planned
 
