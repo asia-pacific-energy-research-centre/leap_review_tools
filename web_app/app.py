@@ -1621,7 +1621,6 @@ from codebase.utilities.leap_balance_export_resolver import (  # noqa: E402
     balance_export_unit_to_petajoule_multiplier,
     infer_balance_export_identity,
     inspect_balance_export_detail,
-    normalize_balance_export_unit,
 )
 
 
@@ -2579,7 +2578,6 @@ class ExportUpload:
     years: tuple[int, ...] = ()
     area_name: str = ""
     units: str = ""
-    unit_warning: str = ""
     error: str = ""
 
     @property
@@ -2591,7 +2589,22 @@ def _read_upload(path: Path) -> ExportUpload:
     """Return what one export declares, or why it cannot be used."""
     try:
         identity = infer_balance_export_identity(path)
+    except Exception as error:
+        return ExportUpload(path=path, error=str(error))
+    try:
         balance_export_unit_to_petajoule_multiplier(identity.units)
+    except ValueError:
+        declared_units = str(identity.units or "").strip()
+        unit_detail = f" uses {declared_units!r}" if declared_units else " has no recognized unit"
+        return ExportUpload(
+            path=path,
+            units=declared_units,
+            error=(
+                f"This export{unit_detail}. Set LEAP Units to None + Petajoule "
+                "and export it again."
+            ),
+        )
+    try:
         detail = inspect_balance_export_detail(path)
     except Exception as error:
         return ExportUpload(path=path, error=str(error))
@@ -2604,14 +2617,6 @@ def _read_upload(path: Path) -> ExportUpload:
                 "least Level 2 detail."
             ),
         )
-    normalized_units = normalize_balance_export_unit(identity.units)
-    unit_warning = ""
-    if normalized_units != "petajoule":
-        unit_warning = (
-            f"This export uses {identity.units}. Its values will be converted to "
-            "petajoules for this run. For future exports, set LEAP Units to "
-            "None + Petajoule."
-        )
     return ExportUpload(
         path=path,
         economy=identity.economy,
@@ -2619,21 +2624,6 @@ def _read_upload(path: Path) -> ExportUpload:
         years=identity.years,
         area_name=identity.area_name,
         units=identity.units,
-        unit_warning=unit_warning,
-    )
-
-
-def _unit_warnings_html(uploads: list[ExportUpload]) -> str:
-    """Return distinct unit-conversion notices for readable uploads."""
-    warnings = list(
-        dict.fromkeys(
-            upload.unit_warning for upload in uploads if upload.unit_warning
-        )
-    )
-    if not warnings:
-        return ""
-    return "".join(
-        f"<p class='unit-warning'>{html.escape(warning)}</p>" for warning in warnings
     )
 
 
@@ -2854,7 +2844,6 @@ def inspect_uploaded_export(
                 body=(
                     _uploads_table(uploads, superseded)
                     + f"<p>{html.escape(note)}</p>"
-                    + _unit_warnings_html(readable)
                 ),
                 multiple=True,
             ),
@@ -2889,7 +2878,6 @@ def inspect_uploaded_export(
             + f"<p>The LEAP area is named “{html.escape(upload.area_name)}”, "
             "which does not match an APEC economy. Enter the economy code below "
             "and everything else still comes from the export.</p>"
-            + _unit_warnings_html([upload])
             + repeats_note
         )
         return (
@@ -2907,7 +2895,6 @@ def inspect_uploaded_export(
         _uploads_table(uploads, superseded)
         + f"<p>LEAP area “{html.escape(upload.area_name)}”. Choose any "
         "review year within this range.</p>"
-        + _unit_warnings_html([upload])
         + repeats_note
     )
     return (

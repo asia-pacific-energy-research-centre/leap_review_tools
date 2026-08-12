@@ -41,7 +41,10 @@ def _upload(tmp_path: Path, name: str, economy: str, scenario: str) -> ExportUpl
     )
 
 
-def test_read_upload_warns_and_accepts_scaled_joule_units(tmp_path, monkeypatch):
+@pytest.mark.parametrize("units", ["Thousand Petajoule", "Billion Gigajoule"])
+def test_read_upload_silently_accepts_scaled_joule_units(
+    tmp_path, monkeypatch, units
+):
     from web_app import app
 
     path = tmp_path / "scaled.xlsx"
@@ -54,7 +57,7 @@ def test_read_upload_warns_and_accepts_scaled_joule_units(tmp_path, monkeypatch)
             scenario="Target",
             years=(2022, 2060),
             area_name="prc clean slate",
-            units="Billion Gigajoule",
+            units=units,
         ),
     )
     monkeypatch.setattr(
@@ -66,9 +69,7 @@ def test_read_upload_warns_and_accepts_scaled_joule_units(tmp_path, monkeypatch)
     upload = _read_upload(path)
 
     assert upload.ok
-    assert upload.units == "Billion Gigajoule"
-    assert "converted to petajoules" in upload.unit_warning
-    assert "None + Petajoule" in upload.unit_warning
+    assert upload.units == units
 
 
 def test_read_upload_rejects_non_joule_units(tmp_path, monkeypatch):
@@ -91,9 +92,8 @@ def test_read_upload_rejects_non_joule_units(tmp_path, monkeypatch):
     upload = _read_upload(path)
 
     assert not upload.ok
-    assert "not a supported Joule-family unit" in upload.error
-    assert "None" in upload.error
-    assert "Petajoule" in upload.error
+    assert "British Thermal Unit" in upload.error
+    assert "Set LEAP Units to None + Petajoule" in upload.error
 
 
 def test_two_economies_are_grouped_one_dashboard_each(tmp_path):

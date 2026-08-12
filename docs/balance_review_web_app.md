@@ -73,8 +73,9 @@ Three things the export can be wrong about are checked at upload rather than at
 run time: a Level 1 export, which flattens the balance and leaves nothing to
 compare; a review year the export has no sheet for; and a non-Joule unit such as
 BTU, watt-hour, or an oil/coal equivalent. Scaled Joule-family units are safely
-converted to petajoules, with a visible recommendation to use None + Petajoule
-on future exports. These checks prevent several-minute runs that could not have
+and silently converted to petajoules. Only an unrecognised or unsupported unit
+produces a user-facing error, which instructs the user to set LEAP Units to
+None + Petajoule. These checks prevent several-minute runs that could not have
 succeeded or could otherwise have interpreted values at the wrong scale.
 
 The optional ESTO override and the
