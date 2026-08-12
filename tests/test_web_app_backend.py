@@ -57,7 +57,7 @@ def test_dashboard_snapshot_helpers_round_trip_and_filter_records() -> None:
     ]
 
     assert _browser_dashboard_choices(records) == [
-        ("20_USA / Target / [2022] (2026-08-05 00:00 UTC)", "run-1"),
+        ("20_USA / Target / [2022] (2026-08-05 09:00 JST)", "run-1"),
         ("01_AUS / unknown /  ()", "run-2"),
     ]
     assert _browser_dashboard_record("run-1", records) == records[0]

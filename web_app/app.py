@@ -21,7 +21,7 @@ import threading
 import time
 import zipfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -66,6 +66,44 @@ DASHBOARD_SERVE_ROOT = Path(tempfile.gettempdir()) / "leap_balance_review_dashbo
 # checkouts, which is how a maintainer runs it while developing.
 RUNTIME_ROOT = Path(os.getenv("LEAP_RUNTIME_ROOT", str(REPO_ROOT / "runtime")))
 SOURCE_PARENT = Path(os.getenv("LEAP_SOURCE_PARENT", str(REPO_ROOT.parent)))
+TOKYO_TIMEZONE = timezone(timedelta(hours=9), name="JST")
+
+
+def _as_tokyo_time(value: datetime) -> datetime:
+    """Return an aware datetime in Tokyo time; naive inputs are treated as UTC."""
+    aware = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return aware.astimezone(TOKYO_TIMEZONE)
+
+
+def _format_tokyo_timestamp(value: object, *, include_seconds: bool = False) -> str:
+    """Format current and legacy saved timestamps for browser-facing labels."""
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        parsed = None
+        for format_string, source_timezone in (
+            ("%Y-%m-%d %H:%M:%S UTC", timezone.utc),
+            ("%Y-%m-%d %H:%M UTC", timezone.utc),
+            ("%Y-%m-%d %H:%M:%S JST", TOKYO_TIMEZONE),
+            ("%Y-%m-%d %H:%M JST", TOKYO_TIMEZONE),
+        ):
+            try:
+                parsed = datetime.strptime(text, format_string).replace(
+                    tzinfo=source_timezone
+                )
+                break
+            except ValueError:
+                continue
+        if parsed is None:
+            try:
+                parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            except ValueError:
+                return text
+    format_string = "%Y-%m-%d %H:%M:%S JST" if include_seconds else "%Y-%m-%d %H:%M JST"
+    return _as_tokyo_time(parsed).strftime(format_string)
 
 
 def _source_root(name: str) -> Path:
@@ -1646,7 +1684,7 @@ def _complete_run_archive_name(
     created_at: datetime | None = None,
 ) -> str:
     """Return a recognisable, unique filename for a run's complete ZIP."""
-    timestamp = created_at or datetime.now(timezone.utc)
+    timestamp = _as_tokyo_time(created_at or datetime.now(timezone.utc))
     return (
         f"{_safe_filename_token(economy)}_"
         f"{_safe_filename_token(scenario)}_complete_run_archive_"
@@ -1789,7 +1827,8 @@ def _browser_dashboard_choices(records: object) -> list[tuple[str, str]]:
             (
                 f"{record.get('economy', 'unknown')} / "
                 f"{record.get('scenario', 'unknown')} / "
-                f"{record.get('years', '')} ({record.get('created_at', '')})",
+                f"{record.get('years', '')} "
+                f"({_format_tokyo_timestamp(record.get('created_at', ''))})",
                 str(record["archive_id"]),
             )
         )
@@ -1826,9 +1865,16 @@ def _saved_dashboard_button_labels(records: list[dict[str, object]]) -> list[str
                 created = datetime.strptime(
                     match.group(1), "%Y%m%dT%H%M%SZ"
                 ).replace(tzinfo=timezone.utc)
-                created_label = created.strftime("%d %b %Y %H:%M:%S UTC")
+                created_label = _as_tokyo_time(created).strftime(
+                    "%d %b %Y %H:%M:%S JST"
+                )
             else:
-                created_label = str(record.get("created_at") or "Saved time unknown")
+                created_label = (
+                    _format_tokyo_timestamp(
+                        record.get("created_at"), include_seconds=True
+                    )
+                    or "Saved time unknown"
+                )
             label = f"{label} · {created_label}"
         labels.append(f"{label} dashboard")
     return labels
@@ -1869,7 +1915,7 @@ def _dashboard_snapshot(
         pages[page_name] = _compress_dashboard_html(page_html)
     return {
         "archive_id": f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{uuid4().hex[:8]}",
-        "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        "created_at": _format_tokyo_timestamp(datetime.now(timezone.utc)),
         "economy": economy,
         "scenario": scenario,
         # Kept beside it so a restored review knows whether the economy had
@@ -3407,7 +3453,7 @@ def _last_run_record(
             for record in records
             if isinstance(record, dict) and record.get("archive_id")
         ][:MAX_BROWSER_DASHBOARDS],
-        "finished_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        "finished_at": _format_tokyo_timestamp(datetime.now(timezone.utc)),
     }
 
 
@@ -3454,7 +3500,8 @@ def restore_last_run(last_run: object, browser_archives: object):
 
     expired = bool(record.get("workbooks")) and not surviving
     note = (
-        f"<span class='result-hint'>Restored from {html.escape(str(record.get('finished_at', '')))}."
+        f"<span class='result-hint'>Restored from "
+        f"{html.escape(_format_tokyo_timestamp(record.get('finished_at', '')))}."
         + (
             " The downloads from that run have since been cleared from the server."
             if expired

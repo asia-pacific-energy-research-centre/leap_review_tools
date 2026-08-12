@@ -35,6 +35,9 @@
   different export** clears the merged file row.
 - 2026-08-12: Label restored dashboard buttons with economy, scenarios and
   review years, adding the saved timestamp only when those details duplicate.
+- 2026-08-12: Show saved-dashboard, restored-run, and archive-filename times in
+  Tokyo time (`JST`), including conversion of legacy browser records stored as
+  UTC; retain UTC only for opaque IDs and internal telemetry.
 
 ## Planned
 

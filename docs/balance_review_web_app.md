@@ -54,7 +54,10 @@ run and should be saved by the user if they need an external archive. The app
 retains the three most recent browser-local snapshots and provides a clear
 button for removing them from that browser. Opening a fresh or saved dashboard
 goes directly to its Energy balance overview; the web app does not insert a
-second page-selection launcher in front of the generated navigation.
+second page-selection launcher in front of the generated navigation. All
+browser-facing saved-run, restored-run, and archive-filename timestamps use
+Tokyo time (`JST`). UTC remains only in opaque identifiers and internal
+machine-readable telemetry.
 
 ## Interface design
 

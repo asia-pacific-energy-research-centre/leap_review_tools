@@ -52,7 +52,7 @@ def test_complete_run_archive_name_identifies_run_and_creation_time() -> None:
         "05_PRC", "Target", created_at=created_at
     )
 
-    assert name == "05_PRC_Target_complete_run_archive_120826_130405.zip"
+    assert name == "05_PRC_Target_complete_run_archive_120826_220405.zip"
 
 
 def test_saved_dashboard_labels_use_details_then_time_to_disambiguate() -> None:
@@ -80,8 +80,8 @@ def test_saved_dashboard_labels_use_details_then_time_to_disambiguate() -> None:
     labels = app._saved_dashboard_button_labels(records)
 
     assert labels == [
-        "16_RUS · Target · 2022, 2023 · 12 Aug 2026 04:55:00 UTC dashboard",
-        "16_RUS · Target · 2022, 2023 · 12 Aug 2026 05:10:15 UTC dashboard",
+        "16_RUS · Target · 2022, 2023 · 12 Aug 2026 13:55:00 JST dashboard",
+        "16_RUS · Target · 2022, 2023 · 12 Aug 2026 14:10:15 JST dashboard",
         "05_PRC · Reference + Target · 2022 dashboard",
     ]
 
@@ -133,7 +133,7 @@ def test_refresh_restores_downloads_that_still_exist(tmp_path) -> None:
 
     assert restored[2] == [str(workbook)]
     assert restored[3] == str(archive)
-    assert "Restored from 2026-08-12 10:00 UTC" in restored[4]
+    assert "Restored from 2026-08-12 19:00 JST" in restored[4]
     assert workbook.is_file()
     assert archive.is_file()
 
