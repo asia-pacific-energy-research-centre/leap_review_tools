@@ -2284,12 +2284,18 @@ def start_run(
     economy_override: str,
     balance_export_workbook: object,
     browser_archives: object,
+    upload_is_live: object = True,
 ) -> tuple[str, object]:
     """Begin a build in the background and return its job id.
 
     The uploaded files are copied before the worker starts, because Gradio
     clears its upload directory once the request that carried them ends.
     """
+    import gradio as gr
+
+    if not upload_is_live:
+        return "", gr.Button(visible=False)
+
     _forget_stale_jobs()
     job_id = uuid4().hex
     keep_root = Path(tempfile.mkdtemp(prefix="leap_balance_review_web_"))
@@ -2348,9 +2354,14 @@ def start_run(
 
     # Not a daemon: a build that has started should be allowed to finish.
     threading.Thread(target=worker, name=f"leap-run-{job_id[:8]}", daemon=False).start()
+    return job_id, gr.Button("Cancel run", visible=True, interactive=True)
+
+
+def activate_run_timer(job_id: object) -> object:
+    """Poll only when a background job was actually started."""
     import gradio as gr
 
-    return job_id, gr.Button("Cancel run", visible=True, interactive=True)
+    return gr.Timer(active=bool(str(job_id or "").strip()))
 
 
 def cancel_run(job_id: object) -> tuple[object, str]:
@@ -3539,6 +3550,54 @@ def resume_run(job_id: object, browser_archives: object):
     )
 
 
+def prepare_run(
+    balance_export_workbook: object,
+    result_links: object = "",
+) -> tuple[object, object, str, object, str, object, object, object, str]:
+    """Lock a valid run, or reset an upload lost during a server restart.
+
+    A browser can retain the parsed upload row while a Space rebuild removes
+    the corresponding temporary server file. Treat that as a stale preview,
+    not as a new build with no inputs.
+    """
+    import gradio as gr
+
+    if _uploaded_paths(balance_export_workbook):
+        locked_button, superseded_links = lock_run_button(result_links)
+        return (
+            True,
+            locked_button,
+            superseded_links,
+            gr.skip(),
+            gr.skip(),
+            gr.skip(),
+            gr.skip(),
+            gr.skip(),
+            gr.skip(),
+        )
+
+    message = (
+        "The app was updated and no longer has this uploaded file. "
+        "Please upload the export again to continue."
+    )
+    readout = _export_readout_html(
+        state="error",
+        label="Please upload this export again",
+        body=f"<p>{html.escape(message)}</p>",
+    )
+    return (
+        False,
+        gr.Button("Run", interactive=False),
+        str(result_links or ""),
+        None,
+        readout,
+        gr.Textbox(visible=False, value=""),
+        gr.Button(visible=False),
+        gr.File(visible=False),
+        _status_html(message),
+    )
+
+
 def select_dashboard_archive(
     archive_id: str | None,
     browser_archives: object,
@@ -3751,6 +3810,7 @@ def create_app():
             storage_key="leap_balance_review_active_job",
             secret=BROWSER_STATE_SECRET,
         )
+        upload_is_live = gr.State(False)
         run_timer = gr.Timer(3, active=False)
         # A Gradio timer ticks in the browser, and a browser throttles or
         # suspends timers in a tab that is not being looked at. So a run that
@@ -3899,9 +3959,19 @@ def create_app():
             browser_archives,
         ]
         run_button.click(
-            fn=lock_run_button,
-            inputs=result_links,
-            outputs=[run_button, result_links],
+            fn=prepare_run,
+            inputs=[balance_export_workbook, result_links],
+            outputs=[
+                upload_is_live,
+                run_button,
+                result_links,
+                balance_export_workbook,
+                export_readout,
+                economy_override,
+                clear_export_button,
+                add_export,
+                status,
+            ],
         ).then(
             fn=start_run,
             inputs=[
@@ -3911,10 +3981,12 @@ def create_app():
                 economy_override,
                 balance_export_workbook,
                 browser_archives,
+                upload_is_live,
             ],
             outputs=[active_job, cancel_button],
         ).then(
-            fn=lambda: gr.Timer(active=True),
+            fn=activate_run_timer,
+            inputs=active_job,
             outputs=run_timer,
         )
         run_timer.tick(

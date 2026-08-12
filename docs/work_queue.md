@@ -2,6 +2,9 @@
 
 ## Completed
 
+- 2026-08-12: Detect upload previews made stale by a Space restart, restore the
+  main chooser, and ask the user to upload the export again instead of starting
+  an empty run.
 - 2026-08-12: Convert every LEAP-scaled Joule-family Energy Balance unit to
   petajoules, warn when an upload is not already None + Petajoule, and reject
   non-Joule unit families before a run starts.

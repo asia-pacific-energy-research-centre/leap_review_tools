@@ -36,6 +36,53 @@ def test_runtime_update_enables_run_from_server_upload_state(monkeypatch) -> Non
     assert run_button.interactive is True
 
 
+def test_prepare_run_resets_upload_lost_during_space_restart(tmp_path) -> None:
+    """A stale parsed row becomes a clear re-upload prompt, not a build error."""
+    stale_upload = tmp_path / "export.xlsx"
+    stale_upload.write_bytes(b"present before restart")
+    stale_upload.unlink()
+
+    (
+        upload_is_live,
+        run_button,
+        result_links,
+        upload_update,
+        readout,
+        _economy_update,
+        clear_button,
+        add_export,
+        status,
+    ) = app.prepare_run([str(stale_upload)], "previous results")
+
+    assert upload_is_live is False
+    assert run_button.interactive is False
+    assert result_links == "previous results"
+    assert upload_update is None
+    assert "Please upload this export again" in readout
+    assert "app was updated" in status
+    assert clear_button.visible is False
+    assert add_export.visible is False
+
+
+def test_start_run_does_not_create_job_for_stale_upload() -> None:
+    """The invalid branch must not start a worker that later says no file exists."""
+    jobs_before = set(app.RUN_JOBS)
+
+    job_id, cancel_button = app.start_run(
+        True,
+        True,
+        "2022",
+        "",
+        ["missing.xlsx"],
+        [],
+        False,
+    )
+
+    assert job_id == ""
+    assert cancel_button.visible is False
+    assert set(app.RUN_JOBS) == jobs_before
+
+
 def test_cancel_run_sets_signal_and_cancel_requested_state() -> None:
     """The Cancel action is idempotent and visible to the background worker."""
     job_id = "cancel-control-test"
