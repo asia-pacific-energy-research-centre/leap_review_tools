@@ -2,6 +2,8 @@
 
 ## Completed
 
+- 2026-08-12: Clear the previous run's status when a valid new run starts so
+  an obsolete failure cannot remain visible beside active progress.
 - 2026-08-12: Detect upload previews made stale by a Space restart, restore the
   main chooser, and ask the user to upload the export again instead of starting
   an empty run.

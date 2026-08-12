@@ -64,6 +64,18 @@ def test_prepare_run_resets_upload_lost_during_space_restart(tmp_path) -> None:
     assert add_export.visible is False
 
 
+def test_prepare_run_clears_status_from_previous_failed_run(tmp_path) -> None:
+    """Starting valid work removes an obsolete failure while progress is shown."""
+    upload = tmp_path / "export.xlsx"
+    upload.write_bytes(b"live upload")
+
+    updates = app.prepare_run([str(upload)], "previous results")
+
+    assert updates[0] is True
+    assert str(updates[1].value).startswith("Running")
+    assert updates[-1] == ""
+
+
 def test_start_run_does_not_create_job_for_stale_upload() -> None:
     """The invalid branch must not start a worker that later says no file exists."""
     jobs_before = set(app.RUN_JOBS)
