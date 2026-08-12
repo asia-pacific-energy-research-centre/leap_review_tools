@@ -2,6 +2,9 @@
 
 ## Completed
 
+- 2026-08-12: Convert every LEAP-scaled Joule-family Energy Balance unit to
+  petajoules, warn when an upload is not already None + Petajoule, and reject
+  non-Joule unit families before a run starts.
 - 2026-08-12: Keep Run readiness server-authoritative after Gradio replaces the
   browser file input following a successful upload.
 - 2026-08-12: Add a Cancel run control. Cancellation is requested immediately,

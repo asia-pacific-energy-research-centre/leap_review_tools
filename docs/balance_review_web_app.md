@@ -64,10 +64,13 @@ the inference was right before committing to a multi-minute run. The dropzone is
 styled and worded as the page's primary action, since supplying the export is
 the one thing the app cannot do for the user.
 
-Two things the export can be wrong about are checked at upload rather than at
+Three things the export can be wrong about are checked at upload rather than at
 run time: a Level 1 export, which flattens the balance and leaves nothing to
-compare, and a review year the export has no sheet for. Both used to surface
-several minutes into a run that could not have succeeded.
+compare; a review year the export has no sheet for; and a non-Joule unit such as
+BTU, watt-hour, or an oil/coal equivalent. Scaled Joule-family units are safely
+converted to petajoules, with a visible recommendation to use None + Petajoule
+on future exports. These checks prevent several-minute runs that could not have
+succeeded or could otherwise have interpreted values at the wrong scale.
 
 The optional ESTO override and the
 technical run summary are collapsed by default so the primary path stays clear.

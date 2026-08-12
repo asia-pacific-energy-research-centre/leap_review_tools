@@ -621,6 +621,14 @@ body, gradio-app {
 .upload-row.is-dupe strong { color: var(--muted); font-weight: 650; }
 .upload-duplicate { color: var(--muted); font-style: italic; }
 .readout-repeat { color: #8a6321; font-weight: 600; }
+.unit-warning {
+  margin: 0.45rem 0 0;
+  padding: 0.45rem 0.6rem;
+  border-left: 3px solid #e0912f;
+  background: #fff8ec;
+  color: #6f511c;
+  font-weight: 600;
+}
 .results-superseded { opacity: 0.5; }
 .results-superseded .superseded-note {
   margin: 0 0 0.5rem;
@@ -1572,8 +1580,10 @@ APP_JS = APP_JS.replace(
 from codebase.portable_release import developer_launcher  # noqa: E402
 from codebase.portable_release.settings import DeveloperSettings  # noqa: E402
 from codebase.utilities.leap_balance_export_resolver import (  # noqa: E402
+    balance_export_unit_to_petajoule_multiplier,
     infer_balance_export_identity,
     inspect_balance_export_detail,
+    normalize_balance_export_unit,
 )
 
 
@@ -2538,6 +2548,8 @@ class ExportUpload:
     scenario: str = ""
     years: tuple[int, ...] = ()
     area_name: str = ""
+    units: str = ""
+    unit_warning: str = ""
     error: str = ""
 
     @property
@@ -2549,6 +2561,7 @@ def _read_upload(path: Path) -> ExportUpload:
     """Return what one export declares, or why it cannot be used."""
     try:
         identity = infer_balance_export_identity(path)
+        balance_export_unit_to_petajoule_multiplier(identity.units)
         detail = inspect_balance_export_detail(path)
     except Exception as error:
         return ExportUpload(path=path, error=str(error))
@@ -2561,12 +2574,36 @@ def _read_upload(path: Path) -> ExportUpload:
                 "least Level 2 detail."
             ),
         )
+    normalized_units = normalize_balance_export_unit(identity.units)
+    unit_warning = ""
+    if normalized_units != "petajoule":
+        unit_warning = (
+            f"This export uses {identity.units}. Its values will be converted to "
+            "petajoules for this run. For future exports, set LEAP Units to "
+            "None + Petajoule."
+        )
     return ExportUpload(
         path=path,
         economy=identity.economy,
         scenario=identity.scenario,
         years=identity.years,
         area_name=identity.area_name,
+        units=identity.units,
+        unit_warning=unit_warning,
+    )
+
+
+def _unit_warnings_html(uploads: list[ExportUpload]) -> str:
+    """Return distinct unit-conversion notices for readable uploads."""
+    warnings = list(
+        dict.fromkeys(
+            upload.unit_warning for upload in uploads if upload.unit_warning
+        )
+    )
+    if not warnings:
+        return ""
+    return "".join(
+        f"<p class='unit-warning'>{html.escape(warning)}</p>" for warning in warnings
     )
 
 
@@ -2784,7 +2821,11 @@ def inspect_uploaded_export(
             _export_readout_html(
                 state=state,
                 label="Read from your exports",
-                body=_uploads_table(uploads, superseded) + f"<p>{html.escape(note)}</p>",
+                body=(
+                    _uploads_table(uploads, superseded)
+                    + f"<p>{html.escape(note)}</p>"
+                    + _unit_warnings_html(readable)
+                ),
                 multiple=True,
             ),
             gr.Textbox(visible=bool(unnamed)),
@@ -2817,7 +2858,9 @@ def inspect_uploaded_export(
             _uploads_table(uploads, superseded)
             + f"<p>The LEAP area is named “{html.escape(upload.area_name)}”, "
             "which does not match an APEC economy. Enter the economy code below "
-            "and everything else still comes from the export.</p>" + repeats_note
+            "and everything else still comes from the export.</p>"
+            + _unit_warnings_html([upload])
+            + repeats_note
         )
         return (
             _export_readout_html(
@@ -2833,7 +2876,9 @@ def inspect_uploaded_export(
     body = (
         _uploads_table(uploads, superseded)
         + f"<p>LEAP area “{html.escape(upload.area_name)}”. Choose any "
-        "review year within this range.</p>" + repeats_note
+        "review year within this range.</p>"
+        + _unit_warnings_html([upload])
+        + repeats_note
     )
     return (
         _export_readout_html(

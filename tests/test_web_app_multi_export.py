@@ -13,11 +13,13 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from web_app.app import (
     ExportUpload,
+    _read_upload,
     _publish_dashboard_pages,
     duplicate_uploads,
     group_by_economy,
@@ -37,6 +39,61 @@ def _upload(tmp_path: Path, name: str, economy: str, scenario: str) -> ExportUpl
     return ExportUpload(
         path=path, economy=economy, scenario=scenario, years=(2022, 2060)
     )
+
+
+def test_read_upload_warns_and_accepts_scaled_joule_units(tmp_path, monkeypatch):
+    from web_app import app
+
+    path = tmp_path / "scaled.xlsx"
+    path.write_bytes(b"x")
+    monkeypatch.setattr(
+        app,
+        "infer_balance_export_identity",
+        lambda _path: SimpleNamespace(
+            economy="05_PRC",
+            scenario="Target",
+            years=(2022, 2060),
+            area_name="prc clean slate",
+            units="Billion Gigajoule",
+        ),
+    )
+    monkeypatch.setattr(
+        app,
+        "inspect_balance_export_detail",
+        lambda _path: SimpleNamespace(has_level2_detail=True),
+    )
+
+    upload = _read_upload(path)
+
+    assert upload.ok
+    assert upload.units == "Billion Gigajoule"
+    assert "converted to petajoules" in upload.unit_warning
+    assert "None + Petajoule" in upload.unit_warning
+
+
+def test_read_upload_rejects_non_joule_units(tmp_path, monkeypatch):
+    from web_app import app
+
+    path = tmp_path / "btu.xlsx"
+    path.write_bytes(b"x")
+    monkeypatch.setattr(
+        app,
+        "infer_balance_export_identity",
+        lambda _path: SimpleNamespace(
+            economy="05_PRC",
+            scenario="Target",
+            years=(2022,),
+            area_name="prc clean slate",
+            units="British Thermal Unit",
+        ),
+    )
+
+    upload = _read_upload(path)
+
+    assert not upload.ok
+    assert "not a supported Joule-family unit" in upload.error
+    assert "None" in upload.error
+    assert "Petajoule" in upload.error
 
 
 def test_two_economies_are_grouped_one_dashboard_each(tmp_path):
