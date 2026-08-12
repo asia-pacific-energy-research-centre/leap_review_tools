@@ -1,0 +1,99 @@
+"""Regression tests for upload readiness and background-run cancellation."""
+
+import threading
+import time
+from pathlib import Path
+
+import pytest
+
+from web_app import app
+
+
+def test_browser_does_not_derive_readiness_from_replaced_file_input() -> None:
+    """Gradio clears the browser FileList after preserving the server upload."""
+    assert "fileInput.files" not in app.APP_JS
+    assert "Run readiness is server-owned" in app.APP_JS
+
+
+def test_browser_merges_file_actions_and_places_cancel_with_progress() -> None:
+    """The visible controls belong to the rows and progress strip they affect."""
+    assert "const mergeUploadControls" in app.APP_JS
+    assert "parsed.appendChild(actions)" in app.APP_JS
+    assert "const placeCancelRun" in app.APP_JS
+    assert "animation.appendChild(cancel)" in app.APP_JS
+
+
+def test_runtime_update_enables_run_from_server_upload_state(monkeypatch) -> None:
+    """A parsed upload and review year enable Run without browser FileList data."""
+    monkeypatch.setattr(app, "_uploaded_paths", lambda value: [Path("export.xlsx")])
+    monkeypatch.setattr(app, "read_uploads", lambda value: [])
+    monkeypatch.setattr(app, "group_by_economy", lambda uploads: {})
+
+    _, _, run_button = app.update_runtime_notes("2022", False, True, ["export.xlsx"])
+
+    assert run_button.interactive is True
+
+
+def test_cancel_run_sets_signal_and_cancel_requested_state() -> None:
+    """The Cancel action is idempotent and visible to the background worker."""
+    job_id = "cancel-control-test"
+    signal = threading.Event()
+    app._set_job(job_id, state="running", cancel_signal=signal, message="Working")
+    try:
+        cancel_button, _ = app.cancel_run(job_id)
+        snapshot = app._job_snapshot(job_id)
+
+        assert signal.is_set()
+        assert snapshot is not None
+        assert snapshot["state"] == "cancel_requested"
+        assert cancel_button.value == "Cancelling…"
+        assert cancel_button.interactive is False
+    finally:
+        with app.RUN_JOBS_LOCK:
+            app.RUN_JOBS.pop(job_id, None)
+
+
+def test_build_honours_cancellation_before_starting_work() -> None:
+    """Cancellation escapes the normal build-failure conversion path."""
+    with pytest.raises(app.RunCancelled):
+        app.build_review_from_export(
+            False,
+            True,
+            "2022",
+            "",
+            [],
+            cancellation_check=lambda: True,
+        )
+
+
+def test_background_worker_finishes_as_cancelled(monkeypatch, tmp_path) -> None:
+    """A cancellation request propagates through the worker to its final state."""
+    upload = tmp_path / "export.xlsx"
+    upload.write_bytes(b"test")
+    worker_started = threading.Event()
+
+    def fake_build(*values, cancellation_check=None, **options):
+        worker_started.set()
+        for _ in range(100):
+            app._raise_if_cancelled(cancellation_check)
+            time.sleep(0.01)
+        raise AssertionError("The worker did not observe cancellation")
+
+    monkeypatch.setattr(app, "build_review_from_export", fake_build)
+    job_id, _ = app.start_run(False, True, "2022", "", [str(upload)], [])
+    try:
+        assert worker_started.wait(timeout=1)
+        app.cancel_run(job_id)
+        deadline = time.time() + 2
+        while time.time() < deadline:
+            snapshot = app._job_snapshot(job_id)
+            if snapshot and snapshot.get("state") == "cancelled":
+                break
+            time.sleep(0.02)
+
+        assert snapshot is not None
+        assert snapshot["state"] == "cancelled"
+        assert snapshot["result"] is None
+    finally:
+        with app.RUN_JOBS_LOCK:
+            app.RUN_JOBS.pop(job_id, None)

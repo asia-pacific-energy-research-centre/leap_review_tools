@@ -7,11 +7,10 @@ orchestration. It does not reimplement diagnostics or workbook construction.
 
 from __future__ import annotations
 
-import json
-import html
 import base64
-from concurrent.futures import ThreadPoolExecutor
 import gzip
+import html
+import json
 import os
 import re
 import shutil
@@ -49,6 +48,9 @@ DEFAULT_DASHBOARD_MAX_YEAR = 2060
 # Keep the browser-local payload within common localStorage quotas while still
 # allowing comparison between several recent economy/scenario runs.
 MAX_BROWSER_DASHBOARDS = 3
+# Gradio encrypts BrowserState with this value. It must remain stable across
+# deployments or a restart makes this browser's existing records unreadable.
+BROWSER_STATE_SECRET = "leap-balance-review-browser-state-v1"
 WEB_ARTIFACT_MAX_AGE_SECONDS = 48 * 60 * 60
 WEB_ARTIFACT_PREFIXES = (
     "leap_balance_review_web_",
@@ -263,6 +265,21 @@ body, gradio-app {
   font-weight: 700;
   letter-spacing: -0.01em;
 }
+/* Hugging Face injects its own repository bar at the top-right of a Space.
+   That is exactly where this app's Guide action lives, so keep the useful HF
+   links but turn the bar into a quieter bottom-right pill. Its position and
+   size arrive as inline styles, hence the deliberate !important overrides. */
+#huggingface-space-header {
+  top: auto !important;
+  right: 0.75rem !important;
+  bottom: 0.75rem !important;
+  transform: scale(0.82);
+  transform-origin: bottom right;
+  opacity: 0.86;
+  transition: opacity 0.15s ease;
+}
+#huggingface-space-header:hover,
+#huggingface-space-header:focus-within { opacity: 1; }
 /* Section labels are a free-standing orange kicker above the panel, not a tab
    glued to it — the panels then read as cards the way the guide's do. */
 .step-heading {
@@ -351,13 +368,12 @@ body, gradio-app {
 #upload-row { align-items: center; }
 #upload-card .step-heading, #results-card .step-heading { margin: 0 0 0.2rem; }
 #upload-card .step-heading p, #results-card .step-heading p { font-size: 0.8rem; }
-/* The file preview and the export readout describe the same files. Keep them
-   in one two-column band so every uploaded export occupies one visual row:
-   the native preview retains its download/remove actions on the left and the
-   parsed economy, scenario, and year range sit beside it on the right. */
+/* The parsed row is the visible file row. Browser code copies Gradio's native
+   size/download/remove controls into it, then keeps the original preview
+   available off-screen so its real actions continue to work. */
 #upload-card {
   display: grid !important;
-  grid-template-columns: minmax(0, 1fr) 270px;
+  grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
   column-gap: 0;
 }
@@ -365,18 +381,18 @@ body, gradio-app {
 #upload-card > #export-actions,
 #upload-card > #component-11,
 #upload-card > #outputs-row,
+#upload-card > #run-actions,
 #upload-card > #run-button,
 #upload-card > #run-status,
 #upload-card > #calculator-holder,
 #upload-card > #technical-details { grid-column: 1 / -1; }
 #upload-card > #balance-upload {
-  grid-column: 2;
+  grid-column: 1 / -1;
   grid-row: 2;
   min-width: 0;
   padding: 0.35rem 0.45rem !important;
   border: 1px solid #c4d2e0 !important;
-  border-left: 0 !important;
-  border-radius: 0 6px 6px 0 !important;
+  border-radius: 6px !important;
   background: #f6f9fc !important;
 }
 #upload-card > #balance-upload:not(:has(table.file-preview)) {
@@ -386,15 +402,14 @@ body, gradio-app {
 }
 #upload-card > #balance-upload:not(:has(table.file-preview)) > button { width: 100%; }
 #upload-card > #export-readout {
-  grid-column: 1;
+  grid-column: 1 / -1;
   grid-row: 2;
   align-self: stretch;
   min-width: 0;
   margin: 0;
   padding: 0.35rem 0.45rem !important;
   border: 1px solid #c4d2e0 !important;
-  border-right: 0 !important;
-  border-radius: 6px 0 0 6px !important;
+  border-radius: 6px !important;
   background: #f6f9fc !important;
 }
 #export-readout .export-readout {
@@ -404,6 +419,16 @@ body, gradio-app {
   background: transparent;
 }
 #upload-card > #export-readout:not(:has(.export-readout)) { display: none !important; }
+#balance-upload.is-merged-preview {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
 /* Gradio's dropzone offers two ways in — drag here, or click — and renders the
    "- or -" between them. The choice is noise when only one route is obvious in
    a browser, and its orange block label reads as the button while the real
@@ -531,7 +556,7 @@ body, gradio-app {
 .upload-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.3rem; }
 .upload-row {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 2fr) repeat(3, minmax(0, 1fr)) auto;
   gap: 0.6rem;
   align-items: baseline;
   padding: 0.35rem 0.55rem;
@@ -543,6 +568,51 @@ body, gradio-app {
 }
 .upload-row strong { color: var(--ink); overflow-wrap: anywhere; }
 .upload-row span { color: var(--muted); }
+.upload-native-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  min-width: 155px;
+}
+.upload-native-actions .upload-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 28px;
+  padding: 0.18rem 0.6rem;
+  border: 1px solid var(--orange);
+  border-radius: 999px;
+  background: #fff6f1;
+  color: var(--orange) !important;
+  font-weight: 700;
+  text-decoration: none !important;
+  white-space: nowrap;
+}
+.upload-native-actions .upload-download:hover {
+  background: var(--orange);
+  color: #ffffff !important;
+}
+.upload-native-actions .download-icon {
+  width: 1.2em;
+  height: 1.2em;
+  flex: 0 0 auto;
+}
+.upload-native-actions .upload-remove {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #8ba0b6;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.upload-native-actions .upload-remove:hover { background: #c0392b; color: #ffffff; }
 .upload-row.is-ok { border-left-color: #2f8f5b; }
 .upload-row.is-warn { border-left-color: #e0912f; }
 .upload-row.is-bad { border-left-color: #c0392b; }
@@ -609,11 +679,31 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
 #balance-upload table.file-preview {
   width: 100% !important;
   border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
+  border-left: 3px solid #2f8f5b !important;
+  border-radius: 4px !important;
+  background: #ffffff !important;
+}
+#balance-upload .file-preview-holder {
+  display: flex !important;
+  height: 100% !important;
+  align-items: center;
+}
+#balance-upload table.file-preview tr.file {
+  height: 30px;
+  background: #ffffff !important;
 }
 #balance-upload table.file-preview td.filename { display: none !important; }
-#balance-upload table.file-preview td { background: transparent !important; }
+#balance-upload table.file-preview td {
+  height: 30px;
+  padding: 0.2rem 0.35rem !important;
+  background: transparent !important;
+}
+#balance-upload table.file-preview td.download a {
+  min-height: 28px;
+  padding: 0.18rem 0.55rem;
+  border-width: 1px !important;
+  font-size: 0.78rem;
+}
 #export-readout .readout-chips { gap: 0; }
 #export-readout .readout-chip { border: 0; background: transparent; }
 /* The ESTO override is a genuine disclosure: say what opening it does, and
@@ -654,7 +744,7 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
   white-space: nowrap;
 }
 #workbook-note > button::after { content: "Guide"; }
-#saved-reviews > button::after { content: "Your earlier runs"; }
+#saved-reviews > button::after { content: "Up to 3 dashboards"; }
 #workbook-note > button.open::after,
 #saved-reviews > button.open::after { content: "Click to close"; }
 #workbook-note > button .icon, #workbook-note > button svg,
@@ -685,6 +775,22 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
   box-shadow: 0 2px 5px rgba(188, 70, 24, 0.22);
 }
 #run-button:hover { background: #d45a20 !important; }
+#run-actions { gap: 0; align-items: stretch; }
+#run-actions > #run-button { flex: 1 1 auto !important; }
+#cancel-run {
+  min-height: 36px;
+  margin-left: auto;
+  padding: 0.35rem 0.85rem !important;
+  border: 1px solid #b83b32 !important;
+  border-radius: 3px !important;
+  background: #ffffff !important;
+  color: #a8342a !important;
+  font-weight: 750;
+  box-shadow: none !important;
+}
+#cancel-run:hover { background: #fff1ef !important; }
+#cancel-run:disabled { color: #8a98a8 !important; border-color: #c8d2dc !important; }
+#calculator-animation #cancel-run { flex: 0 0 auto; }
 /* Locked while a build is in flight: still legible, plainly not pressable. */
 #run-button:disabled, #run-button[disabled] {
   background: #d9a68c !important;
@@ -771,17 +877,29 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
 #results-card:not(:has(#result-links .result-links)):not(:has(.file-preview)) {
   display: none !important;
 }
-.results-summary {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.7rem;
-  margin: 0;
+.results-summary { display: flex; align-items: flex-start; gap: 0.75rem; margin: 0; }
+.results-summary .step-kicker { flex: 0 0 auto; margin-top: 0.18rem; }
+.results-heading-copy { display: grid; gap: 0.12rem; }
+.results-heading-copy strong { color: var(--ink); font-size: 1.02rem; line-height: 1.25; }
+.results-heading-copy span { color: var(--muted); font-size: 0.8rem; line-height: 1.4; }
+#archive-note, #saved-reviews-note {
+  margin: 0.05rem 0 0.45rem;
+  padding: 0.55rem 0.75rem;
+  border-left: 3px solid var(--orange);
+  border-radius: 2px;
+  background: #fff8f3;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
 }
-.results-summary strong { color: var(--ink); font-size: 0.95rem; }
-.results-summary span,
-.results-summary small { color: var(--muted); font-size: 0.76rem; line-height: 1.35; }
-.results-summary small { flex-basis: 100%; }
+#archive-note p, #saved-reviews-note p { margin: 0; }
+#results-card:not(:has(#diagnostics-bundle .file-preview)) #archive-note {
+  display: none !important;
+}
+@media (max-width: 640px) {
+  .results-summary { display: grid; gap: 0.2rem; }
+  .results-summary .step-kicker { margin-top: 0; }
+}
 #clear-dashboards {
   align-self: end;
   max-width: 210px;
@@ -839,8 +957,8 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
 /* The stand-in remove cell matches the one Gradio draws for several files. */
 #balance-upload td[data-single-remove],
 #balance-upload table.file-preview td:last-child:not(.filename):not(.download) {
-  width: 3rem;
-  padding-left: 0.9rem !important;
+  width: 2.2rem;
+  padding: 0.2rem 0.35rem !important;
   color: #8ba0b6 !important;
   font-size: 1.35rem !important;
   font-weight: 400 !important;
@@ -1088,6 +1206,8 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
   .gradio-container { width: calc(100% - 1rem) !important; padding-top: 0.5rem !important; }
   #upload-row, #action-row, #download-row, #dashboard-controls { flex-direction: column; }
   #upload-row > div, #run-button { min-width: 100%; }
+  .upload-row { grid-template-columns: minmax(0, 1fr); }
+  .upload-native-actions { justify-content: flex-start; }
   #upload-card { display: flex !important; }
   #upload-card > #balance-upload,
   #upload-card > #export-readout { width: 100%; }
@@ -1098,6 +1218,7 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
   }
   #advanced-options > button::after { display: none; }
   #clear-dashboards { align-self: stretch; max-width: none; }
+  #huggingface-space-header { transform: scale(0.72); }
 }
 """
 
@@ -1172,32 +1293,10 @@ APP_JS = """
     const workbookCard = document.querySelector('#workbook-card');
     if (workbookCard) workbookCard.classList.toggle('is-unavailable', multi);
   };
-  const syncRunButtonState = () => {
-    const button = runButtonEl();
-    if (!button || document.body.classList.contains('run-active')) return;
-    const fileInput = document.querySelector('#balance-upload input[type="file"]');
-    const yearInput = document.querySelector('#year-input textarea, #year-input input');
-    const ready = !!(fileInput && fileInput.files && fileInput.files.length &&
-      yearInput && yearInput.value.trim());
-    if (ready) button.removeAttribute('disabled');
-    else button.setAttribute('disabled', '');
-    button.setAttribute('aria-disabled', String(!ready));
-    button.title = ready ? 'Run review' : 'Upload an export and enter a review year first';
-  };
-  const guardEmptyRun = () => {
-    if (document.body.dataset.emptyRunGuardBound === '1') return;
-    document.body.dataset.emptyRunGuardBound = '1';
-    document.addEventListener('click', (event) => {
-      const button = event.target.closest('#run-button');
-      if (!button || button.getAttribute('aria-disabled') !== 'true') return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      const status = document.querySelector('#run-status');
-      if (status) status.innerHTML = '<span class="result-hint is-warning">Upload an export and enter at least one review year before running.</span>';
-    }, true);
-  };
-  document.addEventListener('input', syncRunButtonState, true);
-  document.addEventListener('change', syncRunButtonState, true);
+  // Run readiness is server-owned. Gradio replaces its file input after an
+  // upload, at which point the new browser input has no FileList even though
+  // the parsed export remains valid on the server. Deriving readiness here
+  // therefore disabled a correctly enabled Run button after every upload.
   document.addEventListener('change', (event) => {
     if (event.target.matches('.output-card input[type="checkbox"]')) syncOutputCards();
   }, true);
@@ -1210,6 +1309,16 @@ APP_JS = """
     const hero = document.querySelector('#app-hero');
     const launch = document.querySelector('#leap-guide-launch');
     if (hero && launch && launch.parentElement !== hero) hero.appendChild(launch);
+  };
+  // Cancel belongs to the work it stops. Gradio creates the button only while
+  // a run is active; move that live component into the calculator strip when
+  // it appears, preserving its callback and server-managed state.
+  const placeCancelRun = () => {
+    const animation = document.querySelector('#calculator-animation');
+    const cancel = document.querySelector('#cancel-run');
+    if (animation && cancel && cancel.parentElement !== animation) {
+      animation.appendChild(cancel);
+    }
   };
   // Gradio draws a remove cell on each file row only when more than one file
   // is loaded, so a single export could be replaced but not removed, and the
@@ -1269,13 +1378,55 @@ APP_JS = """
       if (!link.title) link.title = 'Download ' + label;
     });
   };
+  // Gradio owns the real file controls, while the parsed row owns the useful
+  // filename/economy/scenario/year context. Proxy the native actions into that
+  // row so each export is one literal white bar rather than two joined boxes.
+  const mergeUploadControls = () => {
+    const holder = document.querySelector('#balance-upload');
+    const parsedRows = [...document.querySelectorAll('#export-readout .upload-row')];
+    const nativeRows = [...document.querySelectorAll('#balance-upload table.file-preview tr.file')];
+    if (!holder || !parsedRows.length || !nativeRows.length) return;
+    parsedRows.forEach((parsed, index) => {
+      const native = nativeRows[index];
+      if (!native) return;
+      const sourceLink = native.querySelector('td.download a');
+      const sourceRemove = native.querySelector('button[aria-label*="Remove"], [data-single-remove]');
+      const signature = (sourceLink ? sourceLink.href : '') + '|' + (native.textContent || '').trim();
+      const existing = parsed.querySelector('.upload-native-actions');
+      if (existing && existing.dataset.signature === signature) return;
+      if (existing) existing.remove();
+      const actions = document.createElement('span');
+      actions.className = 'upload-native-actions';
+      actions.dataset.signature = signature;
+      if (sourceLink) {
+        const link = sourceLink.cloneNode(true);
+        link.classList.add('upload-download');
+        if (!link.querySelector('.download-icon')) {
+          link.insertAdjacentHTML('beforeend', DOWNLOAD_ICON);
+        }
+        actions.appendChild(link);
+      }
+      if (sourceRemove) {
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'upload-remove';
+        remove.textContent = '×';
+        remove.title = 'Remove this export';
+        remove.setAttribute('aria-label', 'Remove this export');
+        remove.addEventListener('click', () => sourceRemove.click());
+        actions.appendChild(remove);
+      }
+      parsed.appendChild(actions);
+    });
+    holder.classList.add('is-merged-preview');
+  };
   const install = () => {
     relabelUpload();
     placeGuideLaunch();
+    placeCancelRun();
     addSingleFileRemove();
     drawDownloadIcons();
-    syncRunButtonState();
-    guardEmptyRun();
+    mergeUploadControls();
     const button = runButtonEl();
     const animation = document.querySelector('#calculator-animation');
     const status = document.querySelector('#run-status textarea, #run-status input');
@@ -1343,7 +1494,12 @@ APP_JS = """
       const value = host.querySelector('.stopwatch-value');
       const remaining = host.querySelector('.stopwatch-remaining');
       const step = host.querySelector('.calc-step');
-      const running = button.disabled;
+      // A disabled Run button can also mean the form is not ready yet (for
+      // example, on a fresh browser with no export or review year).  The
+      // running label is the state set by lock_run_button/resume_run and is
+      // therefore the part that distinguishes active work from idle input.
+      const running = button.disabled &&
+        (button.textContent || '').trim().toLowerCase().startsWith('running');
       host.classList.toggle('is-running', running);
       document.body.classList.toggle('run-active', running);
       if (step) {
@@ -1832,7 +1988,7 @@ def _status_html(message: str, *, tone: str = "") -> str:
 def job_step(job_id: object) -> str:
     """Return the worker's current step for a running job, without a clock."""
     job = _job_snapshot(str(job_id or ""))
-    if not job or job.get("state") != "running":
+    if not job or job.get("state") not in {"running", "cancel_requested"}:
         return ""
     return str(job.get("message") or "Working")
 
@@ -2014,6 +2170,10 @@ RUN_JOBS_LOCK = threading.Lock()
 JOB_RETENTION_SECONDS = 6 * 60 * 60
 
 
+class RunCancelled(Exception):
+    """Raised at a safe workflow boundary after a user requests cancellation."""
+
+
 def _forget_stale_jobs() -> None:
     """Drop finished jobs nobody came back for."""
     cutoff = time.time() - JOB_RETENTION_SECONDS
@@ -2021,7 +2181,8 @@ def _forget_stale_jobs() -> None:
         for job_id in [
             key
             for key, job in RUN_JOBS.items()
-            if job.get("state") != "running" and float(job.get("finished") or 0) < cutoff
+            if job.get("state") not in {"running", "cancel_requested"}
+            and float(job.get("finished") or 0) < cutoff
         ]:
             RUN_JOBS.pop(job_id, None)
 
@@ -2038,6 +2199,20 @@ def _set_job(job_id: str, **fields: object) -> None:
         job.update(fields)
 
 
+def _job_cancel_requested(job_id: str) -> bool:
+    """Return whether cancellation was requested for this background job."""
+    with RUN_JOBS_LOCK:
+        job = RUN_JOBS.get(job_id) or {}
+        signal = job.get("cancel_signal")
+        return bool(isinstance(signal, threading.Event) and signal.is_set())
+
+
+def _raise_if_cancelled(cancellation_check: object = None) -> None:
+    """Stop at a safe boundary when the supplied cancellation check is true."""
+    if callable(cancellation_check) and cancellation_check():
+        raise RunCancelled("Run cancelled by the user.")
+
+
 def start_run(
     want_workbook: object,
     want_dashboard: object,
@@ -2045,7 +2220,7 @@ def start_run(
     economy_override: str,
     balance_export_workbook: object,
     browser_archives: object,
-) -> str:
+) -> tuple[str, object]:
     """Begin a build in the background and return its job id.
 
     The uploaded files are copied before the worker starts, because Gradio
@@ -2065,11 +2240,13 @@ def start_run(
         finished=None,
         message="Starting the run.",
         result=None,
+        cancel_signal=threading.Event(),
     )
 
     def worker() -> None:
         def report(message: str) -> None:
-            _set_job(job_id, message=message)
+            if not _job_cancel_requested(job_id):
+                _set_job(job_id, message=message)
 
         try:
             result = build_review_from_export(
@@ -2082,9 +2259,19 @@ def start_run(
                 None,
                 browser_archives,
                 progress=report,
+                cancellation_check=lambda: _job_cancel_requested(job_id),
             )
+            _raise_if_cancelled(lambda: _job_cancel_requested(job_id))
             _set_job(
                 job_id, state="done", finished=time.time(), result=result, message=""
+            )
+        except RunCancelled:
+            _set_job(
+                job_id,
+                state="cancelled",
+                finished=time.time(),
+                message="Run cancelled. No new results were saved.",
+                result=None,
             )
         except Exception as error:  # A crash must still reach the page.
             _set_job(
@@ -2097,7 +2284,31 @@ def start_run(
 
     # Not a daemon: a build that has started should be allowed to finish.
     threading.Thread(target=worker, name=f"leap-run-{job_id[:8]}", daemon=False).start()
-    return job_id
+    import gradio as gr
+
+    return job_id, gr.Button("Cancel run", visible=True, interactive=True)
+
+
+def cancel_run(job_id: object) -> tuple[object, str]:
+    """Request cancellation and disable the control until the worker stops."""
+    import gradio as gr
+
+    key = str(job_id or "")
+    with RUN_JOBS_LOCK:
+        job = RUN_JOBS.get(key)
+        if not job or job.get("state") not in {"running", "cancel_requested"}:
+            return gr.Button(visible=False), gr.skip()
+        signal = job.get("cancel_signal")
+        if isinstance(signal, threading.Event):
+            signal.set()
+        job.update(
+            state="cancel_requested",
+            message="Cancelling after the current step finishes safely.",
+        )
+    return (
+        gr.Button("Cancelling…", visible=True, interactive=False),
+        _status_html("Cancelling after the current step finishes safely.", tone="is-step"),
+    )
 
 
 def superseded_results_html(current: object) -> str:
@@ -2222,12 +2433,6 @@ def _result_links_html(
         return (
             "<div class='result-links is-failed'>"
             f"<span class='result-hint'>{html.escape(reason)}</span></div>"
-        )
-    if workbook_count:
-        noun = "workbook" if workbook_count == 1 else "workbooks"
-        parts.append(
-            f"<span class='result-hint'>Your review {noun} and the full run "
-            "archive are ready to download below.</span>"
         )
     if not parts:
         return RESULTS_EMPTY_HTML
@@ -2612,6 +2817,7 @@ def build_review_from_export(
     scenario_choice: object = None,
     browser_archives: object = None,
     progress: object = None,
+    cancellation_check: object = None,
     dashboard_min_year: float = DEFAULT_DASHBOARD_MIN_YEAR,
     dashboard_max_year: float = DEFAULT_DASHBOARD_MAX_YEAR,
 ) -> tuple[str, str, object, str | None, str, object, object]:
@@ -2619,6 +2825,7 @@ def build_review_from_export(
     persistent_bundle: Path | None = None
     run_started = time.perf_counter()
     try:
+        _raise_if_cancelled(cancellation_check)
         _cleanup_stale_web_artifacts()
         wants_workbook = bool(want_workbook)
         wants_dashboard = bool(want_dashboard)
@@ -2719,12 +2926,14 @@ def build_review_from_export(
             export_directories[name] = directory
         local_export = _copy_input(workbook_upload.path, run_root / "uploads")
         context = _build_context(run_root)
+        _raise_if_cancelled(cancellation_check)
 
         result = None
         workbook_paths: list[Path] = []
         diagnostics_directory: Path | None = None
         workbook_seconds: float | None = None
         if wants_workbook:
+            _raise_if_cancelled(cancellation_check)
             workbook_started = time.perf_counter()
             result = developer_launcher.run_balance_review_from_export(
                 context=context,
@@ -2744,6 +2953,7 @@ def build_review_from_export(
                 )
             diagnostics_directory = Path(result.outputs["diagnostics_directory"])
             workbook_seconds = time.perf_counter() - workbook_started
+            _raise_if_cancelled(cancellation_check)
 
         dashboard_error = None
         dashboard_directory: Path | None = None
@@ -2755,6 +2965,7 @@ def build_review_from_export(
         if wants_dashboard:
             dashboard_started = time.perf_counter()
             for name in wanted_economies:
+                _raise_if_cancelled(cancellation_check)
                 if progress is not None:
                     progress(
                         f"Rendering the {name} dashboard "
@@ -2791,6 +3002,7 @@ def build_review_from_export(
                             "error": outcome.error or "Dashboard generation failed.",
                         }
                     )
+                _raise_if_cancelled(cancellation_check)
             dashboard_seconds = time.perf_counter() - dashboard_started
             failures = [d for d in dashboards if d.get("error")]
             if failures and len(failures) == len(dashboards):
@@ -2809,6 +3021,7 @@ def build_review_from_export(
 
         persistent_workbooks: list[Path] = []
         persistent_bundle = None
+        _raise_if_cancelled(cancellation_check)
         if wants_workbook and result is not None:
             persistent_dir = Path(
                 tempfile.mkdtemp(prefix="leap_balance_review_download_")
@@ -2832,6 +3045,7 @@ def build_review_from_export(
 
         # Each rendered economy gets its own snapshot and its own link.
         snapshots = []
+        _raise_if_cancelled(cancellation_check)
         for rendered in dashboards:
             if rendered.get("error"):
                 continue
@@ -2877,6 +3091,7 @@ def build_review_from_export(
         )[:MAX_BROWSER_DASHBOARDS] if snapshots else existing_archives[:MAX_BROWSER_DASHBOARDS]
 
         build_result = run_outputs.get("build_result", {})
+        _raise_if_cancelled(cancellation_check)
         runtime_seconds = {
             "workbook": round(workbook_seconds, 1) if workbook_seconds is not None else None,
             "dashboard": round(dashboard_seconds, 1) if dashboard_seconds is not None else None,
@@ -2944,6 +3159,7 @@ def build_review_from_export(
             "dashboard_storage": "browser-local",
             "runtime_seconds": runtime_seconds,
         }
+        _raise_if_cancelled(cancellation_check)
         return (
             json.dumps(summary, indent=2, default=str),
             _status_html(
@@ -2974,6 +3190,8 @@ def build_review_from_export(
             ),
             browser_archive_records,
         )
+    except RunCancelled:
+        raise
     except Exception as error:  # Gradio should show a plain-language failure.
         return (
             "",
@@ -3010,10 +3228,12 @@ def poll_run(job_id: object, browser_archives: object):
             gr.skip(), gr.skip(),
             gr.Timer(active=False),
             gr.Button("Run", interactive=True),
+            gr.Button(visible=False),
             "",
             gr.skip(),
         )
-    if job.get("state") == "running":
+    if job.get("state") in {"running", "cancel_requested"}:
+        cancelling = job.get("state") == "cancel_requested"
         return (
             # Hidden while running: the script moves this text into the
             # calculator caption, beside the clock, rather than showing a
@@ -3023,7 +3243,23 @@ def poll_run(job_id: object, browser_archives: object):
             gr.skip(), gr.skip(), gr.skip(),
             gr.Timer(active=True),
             gr.Button("Running…", interactive=False),
+            gr.Button(
+                "Cancelling…" if cancelling else "Cancel run",
+                visible=True,
+                interactive=not cancelling,
+            ),
             str(job_id),
+            gr.skip(),
+        )
+    if job.get("state") == "cancelled":
+        return (
+            gr.skip(),
+            _status_html(str(job.get("message") or "Run cancelled.")),
+            gr.skip(), gr.skip(), gr.skip(), gr.skip(), gr.skip(),
+            gr.Timer(active=False),
+            gr.Button("Run", interactive=True),
+            gr.Button(visible=False),
+            "",
             gr.skip(),
         )
     if job.get("state") == "failed":
@@ -3034,6 +3270,7 @@ def poll_run(job_id: object, browser_archives: object):
             saved,
             gr.Timer(active=False),
             gr.Button("Run", interactive=True),
+            gr.Button(visible=False),
             "",
             gr.skip(),
         )
@@ -3046,6 +3283,7 @@ def poll_run(job_id: object, browser_archives: object):
             saved,
             gr.Timer(active=False),
             gr.Button("Run", interactive=True),
+            gr.Button(visible=False),
             "",
             gr.skip(),
         )
@@ -3053,6 +3291,7 @@ def poll_run(job_id: object, browser_archives: object):
         *result,
         gr.Timer(active=False),
         gr.Button("Run", interactive=True),
+        gr.Button(visible=False),
         "",
         _last_run_record(result[0], result[1], result[2], result[3], result[6]),
     )
@@ -3144,7 +3383,11 @@ def restore_last_run(last_run: object, browser_archives: object):
             dashboard_error=None,
             wants_dashboard=bool(links),
             workbook_count=len(surviving),
-        ).replace("</div>", note + "</div>", 1)
+        )
+        if links_html:
+            links_html = links_html.replace("</div>", note + "</div>", 1)
+        else:
+            links_html = f"<div class='result-links'>{note}</div>"
     else:
         # Only the fact of expiry is left to report, so say that plainly
         # rather than dressing up the empty state.
@@ -3165,11 +3408,28 @@ def resume_run(job_id: object, browser_archives: object):
 
     job = _job_snapshot(str(job_id or ""))
     if job is None:
-        return gr.Timer(active=False), gr.Button("Run", interactive=True)
-    if job.get("state") == "running":
-        return gr.Timer(active=True), gr.Button("Running…", interactive=False)
+        return (
+            gr.Timer(active=False),
+            gr.Button("Run", interactive=True),
+            gr.Button(visible=False),
+        )
+    if job.get("state") in {"running", "cancel_requested"}:
+        cancelling = job.get("state") == "cancel_requested"
+        return (
+            gr.Timer(active=True),
+            gr.Button("Running…", interactive=False),
+            gr.Button(
+                "Cancelling…" if cancelling else "Cancel run",
+                visible=True,
+                interactive=not cancelling,
+            ),
+        )
     # A run that finished while the page was away is collected on the next tick.
-    return gr.Timer(active=True), gr.Button("Running…", interactive=False)
+    return (
+        gr.Timer(active=True),
+        gr.Button("Running…", interactive=False),
+        gr.Button(visible=False),
+    )
 
 
 def select_dashboard_archive(
@@ -3343,12 +3603,18 @@ def create_app():
                         )
                         + "</p>"
                     )
-            run_button = gr.Button(
-                "Run",
-                variant="primary",
-                interactive=False,
-                elem_id="run-button",
-            )
+            with gr.Row(elem_id="run-actions"):
+                run_button = gr.Button(
+                    "Run",
+                    variant="primary",
+                    interactive=False,
+                    elem_id="run-button",
+                )
+                cancel_button = gr.Button(
+                    "Cancel run",
+                    visible=False,
+                    elem_id="cancel-run",
+                )
             status = gr.HTML(value="", elem_id="run-status")
             calculator_animation = gr.HTML(
                 _calculator_html(hosted_runtime_profile, want_dashboard=True, years=1),
@@ -3369,12 +3635,14 @@ def create_app():
         browser_archives = gr.BrowserState(
             default_value=[],
             storage_key="leap_balance_review_dashboard_archives",
+            secret=BROWSER_STATE_SECRET,
         )
         # The id of a run in flight, kept in the browser so a reopened page can
         # find its way back to work that is still going.
         active_job = gr.BrowserState(
             default_value="",
             storage_key="leap_balance_review_active_job",
+            secret=BROWSER_STATE_SECRET,
         )
         run_timer = gr.Timer(3, active=False)
         # A Gradio timer ticks in the browser, and a browser throttles or
@@ -3392,15 +3660,17 @@ def create_app():
         last_run = gr.BrowserState(
             default_value={},
             storage_key="leap_balance_review_last_run",
+            secret=BROWSER_STATE_SECRET,
         )
         with gr.Column(elem_id="results-card"):
             gr.HTML(
                 """<div class="step-heading">
                   <div class="results-summary">
                     <span class="step-kicker">02 · Results</span>
-                    <strong>Your dashboard and workbooks</strong>
-                    <span>Dashboard links open in a new tab; workbook files download below.</span>
-                    <small>Saved dashboards keep up to three recent snapshots in this browser and do not expire on a timer. Browser data or storage limits can remove them; download <strong>Complete run archive</strong> for a durable copy. Server download files may be cleared after about 48 hours.</small>
+                    <div class="results-heading-copy">
+                      <strong>Your dashboard and workbooks</strong>
+                      <span>Open the dashboard or download the files from this run.</span>
+                    </div>
                   </div>
                 </div>"""
             )
@@ -3410,7 +3680,17 @@ def create_app():
                     label="Review workbook(s)",
                     file_count="multiple",
                 )
-                diagnostics_bundle = gr.File(label="Complete run archive")
+                diagnostics_bundle = gr.File(
+                    label="Complete run archive (.zip)",
+                    elem_id="diagnostics-bundle",
+                )
+            gr.Markdown(
+                "**Complete run archive (.zip):** The safest way to keep this run. "
+                "It contains the review workbooks, diagnostics and run details, "
+                "plus the dashboard when one was created. Download it to your "
+                "computer for a permanent copy.",
+                elem_id="archive-note",
+            )
             with gr.Accordion(
                 "How to read the review workbook",
                 open=False,
@@ -3425,10 +3705,19 @@ def create_app():
                     elem_id="results-note",
                 )
             with gr.Accordion(
-                "Reopen an earlier run from this browser",
+                "Recent dashboards saved in this browser",
                 open=False,
                 elem_id="saved-reviews",
             ):
+                gr.Markdown(
+                    "This browser can remember up to three dashboards for quick "
+                    "reopening. They are not a backup: the oldest is replaced when "
+                    "a fourth is saved, while website updates, clearing site data, "
+                    "private browsing, storage limits, or switching browser or "
+                    "device may remove them. Download the **Complete run archive "
+                    "(.zip)** to keep a permanent copy.",
+                    elem_id="saved-reviews-note",
+                )
                 with gr.Row(elem_id="dashboard-controls"):
                     dashboard_archive = gr.Dropdown(
                         label="Saved review",
@@ -3446,13 +3735,12 @@ def create_app():
                 saved_link = gr.HTML(
                     value=(
                         "<div class='result-links'><span class='result-hint'>"
-                        "Saved reviews stay in this browser and are never stored "
-                        "on the server.</span></div>"
+                        "Choose a recent dashboard above to reopen it.</span></div>"
                     ),
                     elem_id="saved-link",
                 )
 
-        for _control in (year, want_workbook, want_dashboard, balance_export_workbook):
+        for _control in (year, want_workbook, want_dashboard):
             _control.change(
                 fn=update_runtime_notes,
                 inputs=[year, want_workbook, want_dashboard, balance_export_workbook],
@@ -3489,6 +3777,14 @@ def create_app():
                 want_workbook,
                 want_dashboard,
             ],
+        ).then(
+            # Inspection can populate the review year and change which outputs
+            # are available. Quote readiness only after those values settle;
+            # parallel callbacks raced and left Run disabled until Dashboard
+            # was clicked a second time.
+            fn=update_runtime_notes,
+            inputs=[year, want_workbook, want_dashboard, balance_export_workbook],
+            outputs=[workbook_runtime_note, calculator_animation, run_button],
         )
         # Starting a run hands the work to a background worker and remembers
         # its id in the browser, so closing the tab does not cancel the build
@@ -3516,7 +3812,7 @@ def create_app():
                 balance_export_workbook,
                 browser_archives,
             ],
-            outputs=active_job,
+            outputs=[active_job, cancel_button],
         ).then(
             fn=lambda: gr.Timer(active=True),
             outputs=run_timer,
@@ -3528,9 +3824,15 @@ def create_app():
                 *run_outputs_list,
                 run_timer,
                 run_button,
+                cancel_button,
                 active_job,
                 last_run,
             ],
+        )
+        cancel_button.click(
+            fn=cancel_run,
+            inputs=active_job,
+            outputs=[cancel_button, status],
         )
         refresh_run.click(
             fn=poll_run,
@@ -3539,6 +3841,7 @@ def create_app():
                 *run_outputs_list,
                 run_timer,
                 run_button,
+                cancel_button,
                 active_job,
                 last_run,
             ],
@@ -3563,7 +3866,7 @@ def create_app():
         ).then(
             fn=resume_run,
             inputs=[active_job, browser_archives],
-            outputs=[run_timer, run_button],
+            outputs=[run_timer, run_button, cancel_button],
         )
     return app
 
