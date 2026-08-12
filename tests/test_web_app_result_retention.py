@@ -2,6 +2,7 @@
 
 import os
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from web_app import app
@@ -26,8 +27,8 @@ def test_browser_state_secret_is_stable_across_app_restarts() -> None:
     } == {app.BROWSER_STATE_SECRET}
 
 
-def test_results_copy_explains_archive_and_saved_dashboard_limits() -> None:
-    """Backup guidance sits beside the archive and recent-dashboard controls."""
+def test_results_copy_keeps_only_saved_dashboard_limits() -> None:
+    """The archive is self-explanatory; only dashboard loss needs guidance."""
     config = app.create_app().get_config_file()
     text = "\n".join(
         str(component.get("props", {}).get("value", ""))
@@ -39,9 +40,19 @@ def test_results_copy_explains_archive_and_saved_dashboard_limits() -> None:
     }
 
     assert "Complete run archive (.zip)" in labels
-    assert "The safest way to keep this run" in text
+    assert "The safest way to keep this run" not in text
     assert "website updates, clearing site data" in text
     assert "the oldest is replaced when a fourth is saved" in text
+
+
+def test_complete_run_archive_name_identifies_run_and_creation_time() -> None:
+    created_at = datetime(2026, 8, 12, 13, 4, 5, tzinfo=timezone.utc)
+
+    name = app._complete_run_archive_name(
+        "05_PRC", "Target", created_at=created_at
+    )
+
+    assert name == "05_PRC_Target_complete_run_archive_120826_130405.zip"
 
 
 def test_cleanup_removes_only_expired_app_directories(monkeypatch, tmp_path) -> None:

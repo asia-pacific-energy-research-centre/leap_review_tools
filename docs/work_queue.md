@@ -15,6 +15,8 @@
 - 2026-08-12: Keep browser dashboard records readable across normal app
   deployments and move plain-language backup guidance beside the controls it
   explains.
+- 2026-08-12: Give complete run archives descriptive, timestamped filenames
+  and remove the redundant archive explanation from Results.
 
 ## Planned
 

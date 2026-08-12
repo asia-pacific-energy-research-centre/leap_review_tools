@@ -882,7 +882,7 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
 .results-heading-copy { display: grid; gap: 0.12rem; }
 .results-heading-copy strong { color: var(--ink); font-size: 1.02rem; line-height: 1.25; }
 .results-heading-copy span { color: var(--muted); font-size: 0.8rem; line-height: 1.4; }
-#archive-note, #saved-reviews-note {
+#saved-reviews-note {
   margin: 0.05rem 0 0.45rem;
   padding: 0.55rem 0.75rem;
   border-left: 3px solid var(--orange);
@@ -892,10 +892,7 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
   font-size: 0.78rem;
   line-height: 1.45;
 }
-#archive-note p, #saved-reviews-note p { margin: 0; }
-#results-card:not(:has(#diagnostics-bundle .file-preview)) #archive-note {
-  display: none !important;
-}
+#saved-reviews-note p { margin: 0; }
 @media (max-width: 640px) {
   .results-summary { display: grid; gap: 0.2rem; }
   .results-summary .step-kicker { margin-top: 0; }
@@ -1626,6 +1623,21 @@ def _cleanup_stale_web_artifacts(
 def _safe_filename_token(value: object) -> str:
     token = re.sub(r"[^A-Za-z0-9_-]+", "_", str(value).strip())
     return token.strip("_") or "unknown"
+
+
+def _complete_run_archive_name(
+    economy: object,
+    scenario: object,
+    *,
+    created_at: datetime | None = None,
+) -> str:
+    """Return a recognisable, unique filename for a run's complete ZIP."""
+    timestamp = created_at or datetime.now(timezone.utc)
+    return (
+        f"{_safe_filename_token(economy)}_"
+        f"{_safe_filename_token(scenario)}_complete_run_archive_"
+        f"{timestamp.strftime('%d%m%y_%H%M%S')}.zip"
+    )
 
 
 def _source_commit() -> str:
@@ -3030,9 +3042,9 @@ def build_review_from_export(
                 target = persistent_dir / workbook_path.name
                 shutil.copy2(workbook_path, target)
                 persistent_workbooks.append(target)
-            persistent_bundle = persistent_dir / (
-                f"{_safe_filename_token(economy_value)}_"
-                f"{_safe_filename_token(scenario_value)}_{year_value}_diagnostics.zip"
+            persistent_bundle = persistent_dir / _complete_run_archive_name(
+                economy_value,
+                scenario_value,
             )
             _write_diagnostics_bundle(
                 bundle_path=persistent_bundle,
@@ -3684,13 +3696,6 @@ def create_app():
                     label="Complete run archive (.zip)",
                     elem_id="diagnostics-bundle",
                 )
-            gr.Markdown(
-                "**Complete run archive (.zip):** The safest way to keep this run. "
-                "It contains the review workbooks, diagnostics and run details, "
-                "plus the dashboard when one was created. Download it to your "
-                "computer for a permanent copy.",
-                elem_id="archive-note",
-            )
             with gr.Accordion(
                 "How to read the review workbook",
                 open=False,
