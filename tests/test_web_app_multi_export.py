@@ -169,14 +169,18 @@ def test_dashboard_opens_energy_balance_overview_without_launcher(tmp_path, monk
     other = app._compress_dashboard_html("<html><body>buildings</body></html>")
 
     url = _publish_dashboard_pages(
-        {"buildings.html": other, "total_demand.html": page},
+        {
+            "buildings.html": other,
+            "energy_balance_overview.html": page,
+            "total_demand.html": other,
+        },
         economy="05_PRC",
         scenario="Target",
         years="2022",
     )
     served_page = Path(url.split("file=")[1])
 
-    assert served_page.name == "total_demand.html"
+    assert served_page.name == "energy_balance_overview.html"
     assert not (served_page.parent / "index.html").exists()
 
 

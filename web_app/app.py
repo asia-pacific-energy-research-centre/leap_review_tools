@@ -1943,7 +1943,7 @@ def _publish_dashboard_pages(
     preferred_page = next(
         (
             page_name
-            for page_name in ("total_demand.html", "energy_balance_overview.html")
+            for page_name in ("energy_balance_overview.html", "total_demand.html")
             if page_name in page_names
         ),
         sorted(page_names)[0],
