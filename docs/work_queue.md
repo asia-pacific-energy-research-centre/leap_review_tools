@@ -19,6 +19,8 @@
   and remove the redundant archive explanation from Results.
 - 2026-08-12: Restore the primary upload chooser immediately after **Use a
   different export** clears the merged file row.
+- 2026-08-12: Label restored dashboard buttons with economy, scenarios and
+  review years, adding the saved timestamp only when those details duplicate.
 
 ## Planned
 

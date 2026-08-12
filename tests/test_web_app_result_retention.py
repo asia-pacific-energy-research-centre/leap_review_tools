@@ -55,6 +55,37 @@ def test_complete_run_archive_name_identifies_run_and_creation_time() -> None:
     assert name == "05_PRC_Target_complete_run_archive_120826_130405.zip"
 
 
+def test_saved_dashboard_labels_use_details_then_time_to_disambiguate() -> None:
+    records = [
+        {
+            "archive_id": "20260812T045500Z_first",
+            "economy": "16_RUS",
+            "scenarios": ["Target"],
+            "years": "2022, 2023",
+        },
+        {
+            "archive_id": "20260812T051015Z_second",
+            "economy": "16_RUS",
+            "scenarios": ["Target"],
+            "years": "2022, 2023",
+        },
+        {
+            "archive_id": "20260812T060000Z_third",
+            "economy": "05_PRC",
+            "scenarios": ["Reference", "Target"],
+            "years": "2022",
+        },
+    ]
+
+    labels = app._saved_dashboard_button_labels(records)
+
+    assert labels == [
+        "16_RUS · Target · 2022, 2023 · 12 Aug 2026 04:55:00 UTC dashboard",
+        "16_RUS · Target · 2022, 2023 · 12 Aug 2026 05:10:15 UTC dashboard",
+        "05_PRC · Reference + Target · 2022 dashboard",
+    ]
+
+
 def test_cleanup_removes_only_expired_app_directories(monkeypatch, tmp_path) -> None:
     """The 48-hour rule is an on-run cleanup threshold, not a file lifetime."""
     dashboard_root = tmp_path / "leap_balance_review_dashboards"

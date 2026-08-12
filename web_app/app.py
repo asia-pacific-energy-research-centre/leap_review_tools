@@ -1786,6 +1786,44 @@ def _browser_dashboard_choices(records: object) -> list[tuple[str, str]]:
     return choices
 
 
+def _saved_dashboard_button_labels(records: list[dict[str, object]]) -> list[str]:
+    """Describe saved dashboards, adding creation time only for duplicates."""
+    base_labels: list[str] = []
+    for record in records:
+        economy = str(record.get("economy") or "Unknown economy")
+        scenarios = [
+            str(name).strip()
+            for name in (record.get("scenarios") or [])
+            if str(name).strip()
+        ]
+        if not scenarios and str(record.get("scenario") or "").strip():
+            scenarios = [str(record["scenario"]).strip()]
+        details = [economy]
+        if scenarios:
+            details.append(" + ".join(dict.fromkeys(scenarios)))
+        years = str(record.get("years") or "").strip()
+        if years:
+            details.append(years)
+        base_labels.append(" · ".join(details))
+
+    labels: list[str] = []
+    for record, base_label in zip(records, base_labels):
+        label = base_label
+        if base_labels.count(base_label) > 1:
+            archive_id = str(record.get("archive_id") or "")
+            match = re.match(r"^(\d{8}T\d{6}Z)", archive_id)
+            if match:
+                created = datetime.strptime(
+                    match.group(1), "%Y%m%dT%H%M%SZ"
+                ).replace(tzinfo=timezone.utc)
+                created_label = created.strftime("%d %b %Y %H:%M:%S UTC")
+            else:
+                created_label = str(record.get("created_at") or "Saved time unknown")
+            label = f"{label} · {created_label}"
+        labels.append(f"{label} dashboard")
+    return labels
+
+
 def _browser_dashboard_record(
     archive_id: str | None,
     records: object,
@@ -2426,10 +2464,8 @@ def _result_links_html(
     if links:
         # One button per economy, named, so a multi-economy run is navigable.
         for link in links:
-            label = (
-                "Open the dashboard"
-                if len(links) == 1
-                else f"{link['economy']} dashboard"
+            label = link.get("label") or (
+                "Open the dashboard" if len(links) == 1 else f"{link['economy']} dashboard"
             )
             parts.append(
                 f"<a class='result-link is-primary' href='{html.escape(link['url'])}' "
@@ -3034,6 +3070,11 @@ def build_review_from_export(
 
         run_outputs = result.outputs if result is not None else {}
         years_built = run_outputs.get("years", year_value) if wants_workbook else None
+        saved_dashboard_years = (
+            years_built
+            or year_value
+            or f"{dashboard_min_year_value}–{dashboard_max_year_value}"
+        )
 
         persistent_workbooks: list[Path] = []
         persistent_bundle = None
@@ -3081,14 +3122,14 @@ def build_review_from_export(
                 rendered["directory"],
                 economy=name,
                 scenario=economy_scenario,
-                years=years_built or "",
+                years=saved_dashboard_years,
                 scenarios=economy_scenarios,
             )
             url = _publish_dashboard_pages(
                 snapshot_for["pages"],
                 economy=name,
                 scenario=economy_scenario,
-                years=years_built or "",
+                years=saved_dashboard_years,
                 scenarios=economy_scenarios,
             )
             snapshots.append({"economy": name, "snapshot": snapshot_for, "url": url})
@@ -3357,6 +3398,7 @@ def restore_last_run(last_run: object, browser_archives: object):
     archives = browser_archives if isinstance(browser_archives, list) else []
     wanted = set(record.get("archive_ids") or [])
     links: list[dict[str, str]] = []
+    link_records: list[dict[str, object]] = []
     for archive in archives:
         if not isinstance(archive, dict) or archive.get("archive_id") not in wanted:
             continue
@@ -3371,7 +3413,11 @@ def restore_last_run(last_run: object, browser_archives: object):
         except (OSError, ValueError, UnicodeDecodeError):
             continue
         if url:
+            link_records.append(archive)
             links.append({"economy": str(archive.get("economy", "")), "url": url})
+
+    for link, label in zip(links, _saved_dashboard_button_labels(link_records)):
+        link["label"] = label
 
     surviving = [path for path in record.get("workbooks") or [] if Path(path).is_file()]
     bundle = record.get("bundle") or ""
