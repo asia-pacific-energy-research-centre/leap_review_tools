@@ -2,6 +2,10 @@
 
 ## Completed
 
+- 2026-08-13: Preserve the complete portable dashboard bundle across browser
+  snapshots, server publication and downloadable diagnostics archives, so both
+  maintained comparison scopes and their mapping-diagnostics pages remain
+  reachable instead of being flattened to one dashboard folder.
 - 2026-08-12: Bundle and pass the published ESTO, LEAP and 9th provenance maps
   into web-dashboard renders, and distinguish omitted map files from genuine
   mapping-generation mismatches in the dashboard guide.
