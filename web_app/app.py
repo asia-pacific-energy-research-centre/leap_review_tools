@@ -1767,6 +1767,20 @@ def _write_diagnostics_bundle(
             if path.is_file():
                 bundle.write(path, arcname=name)
         if dashboard_directory is not None and dashboard_directory.is_dir():
+            bundle_root = _dashboard_bundle_root(dashboard_directory)
+            if bundle_root != dashboard_directory.parent:
+                for path in sorted(bundle_root.rglob("*")):
+                    if path.is_file() and path.name not in {
+                        "run_manifest.json",
+                        "run_manifest.txt",
+                        "validation_report.txt",
+                    }:
+                        bundle.write(
+                            path,
+                            arcname=f"dashboard/{path.relative_to(bundle_root)}",
+                        )
+                dashboard_directory = None
+        if dashboard_directory is not None and dashboard_directory.is_dir():
             # Dashboard pages refer to chart bundles with ../chart_bundles/.
             # Keep that sibling relationship inside the ZIP so extracting the
             # dashboard folder preserves the links used by the HTML pages.
@@ -1803,6 +1817,34 @@ def _dashboard_pages(dashboard_directory: Path) -> list[str]:
         for path in dashboard_directory.glob("*.html")
         if path.name != "index.html"
     )
+
+
+def _dashboard_bundle_root(dashboard_directory: Path) -> Path:
+    """Return the root shared by comparison-basis and diagnostics folders."""
+    dashboard_directory = Path(dashboard_directory)
+    dashboard_key = dashboard_directory.parent.name
+    if dashboard_directory.name == "dashboards" and re.fullmatch(
+        r"\d{2}[A-Za-z]{2,}(?:__[A-Za-z0-9_-]+)?",
+        dashboard_key,
+    ):
+        return dashboard_directory.parent.parent
+    return dashboard_directory.parent
+
+
+def _dashboard_bundle_pages(dashboard_directory: Path) -> list[tuple[str, Path]]:
+    """Return every HTML page needed for basis switching and diagnostics."""
+    root = _dashboard_bundle_root(dashboard_directory)
+    if root == dashboard_directory.parent:
+        return [
+            (path.name, path)
+            for path in sorted(dashboard_directory.glob("*.html"))
+            if path.name != "index.html"
+        ]
+    return [
+        (path.relative_to(root).as_posix(), path)
+        for path in sorted(root.glob("*/dashboards/*.html"))
+        if path.name != "index.html"
+    ]
 
 
 def _compress_dashboard_html(page_html: str) -> str:
@@ -1905,8 +1947,7 @@ def _dashboard_snapshot(
 ) -> dict[str, object]:
     """Create a compressed browser-local snapshot of every dashboard page."""
     pages = {}
-    for page_name in _dashboard_pages(dashboard_directory):
-        page_path = dashboard_directory / page_name
+    for page_name, page_path in _dashboard_bundle_pages(dashboard_directory):
         page_html = _inline_dashboard_chart_bundle(
             page_path,
             page_path.read_text(encoding="utf-8"),
@@ -1976,22 +2017,30 @@ def _publish_dashboard_pages(
 
     for page_name in sorted(pages):
         page_html = _decompress_dashboard_html(str(pages[page_name]))
-        safe_name = Path(str(page_name)).name
-        (run_directory / safe_name).write_text(
+        relative_path = Path(str(page_name).replace("\\", "/"))
+        if relative_path.is_absolute() or ".." in relative_path.parts:
+            raise ValueError(f"Unsafe dashboard page path: {page_name!r}")
+        destination = run_directory / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(
             _locked_dashboard_html(
                 page_html, scenario, allow_switching=allow_switching
             ),
             encoding="utf-8",
         )
 
-    page_names = [Path(str(page_name)).name for page_name in pages]
+    page_names = [Path(str(page_name).replace("\\", "/")) for page_name in pages]
     preferred_page = next(
         (
             page_name
-            for page_name in ("energy_balance_overview.html", "total_demand.html")
-            if page_name in page_names
+            for preferred in ("energy_balance_overview.html", "total_demand.html")
+            for page_name in sorted(
+                page_names,
+                key=lambda path: (len(path.parts), path.as_posix()),
+            )
+            if page_name.name == preferred and "__" not in page_name.as_posix()
         ),
-        sorted(page_names)[0],
+        sorted(page_names, key=lambda path: (len(path.parts), path.as_posix()))[0],
     )
     return f"/gradio_api/file={(run_directory / preferred_page).as_posix()}"
 

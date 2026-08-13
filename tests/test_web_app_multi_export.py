@@ -184,6 +184,67 @@ def test_dashboard_opens_energy_balance_overview_without_launcher(tmp_path, monk
     assert not (served_page.parent / "index.html").exists()
 
 
+def test_dashboard_snapshot_and_publish_preserve_comparison_basis_bundle(
+    tmp_path,
+    monkeypatch,
+):
+    from web_app import app
+
+    bundle = tmp_path / "rendered"
+    for key in ("20USA", "20USA__esto_leap"):
+        dashboards = bundle / key / "dashboards"
+        charts = bundle / key / "chart_bundles"
+        dashboards.mkdir(parents=True)
+        charts.mkdir(parents=True)
+        (charts / "overview.js").write_text("window.variantLoaded=true;", encoding="utf-8")
+        (dashboards / "energy_balance_overview.html").write_text(
+            '<html><script src="../chart_bundles/overview.js"></script></html>',
+            encoding="utf-8",
+        )
+    diagnostics = bundle / "diagnostics" / "dashboards"
+    diagnostics.mkdir(parents=True)
+    (diagnostics / "mapping_diagnostics.html").write_text(
+        "<html>mapping diagnostics</html>",
+        encoding="utf-8",
+    )
+
+    snapshot = app._dashboard_snapshot(
+        bundle / "20USA" / "dashboards",
+        economy="20_USA",
+        scenario="Target",
+        years="2022–2060",
+    )
+
+    assert set(snapshot["pages"]) == {
+        "20USA/dashboards/energy_balance_overview.html",
+        "20USA__esto_leap/dashboards/energy_balance_overview.html",
+        "diagnostics/dashboards/mapping_diagnostics.html",
+    }
+    monkeypatch.setattr(app, "DASHBOARD_SERVE_ROOT", tmp_path / "served")
+    url = app._publish_dashboard_pages(
+        snapshot["pages"],
+        economy="20_USA",
+        scenario="Target",
+        years="2022–2060",
+    )
+    served_page = Path(url.split("file=")[1])
+    assert served_page.relative_to(served_page.parents[2]).as_posix().endswith(
+        "20USA/dashboards/energy_balance_overview.html"
+    )
+    assert (
+        served_page.parents[2]
+        / "20USA__esto_leap"
+        / "dashboards"
+        / "energy_balance_overview.html"
+    ).is_file()
+    assert (
+        served_page.parents[2]
+        / "diagnostics"
+        / "dashboards"
+        / "mapping_diagnostics.html"
+    ).is_file()
+
+
 @pytest.mark.integration
 def test_two_exports_build_one_dashboard_each():
     """Drive the real chain with two economies at once.
