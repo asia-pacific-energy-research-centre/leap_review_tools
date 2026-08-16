@@ -1760,8 +1760,15 @@ def _write_diagnostics_bundle(
         for workbook_path in workbook_paths:
             bundle.write(workbook_path, arcname=f"workbooks/{workbook_path.name}")
         if diagnostics_directory.is_dir():
-            for path in sorted(diagnostics_directory.rglob("*.csv")):
-                bundle.write(path, arcname=f"diagnostics/{path.name}")
+            for path in sorted(diagnostics_directory.rglob("*")):
+                if path.is_file():
+                    bundle.write(
+                        path,
+                        arcname=(
+                            "diagnostics/"
+                            + path.relative_to(diagnostics_directory).as_posix()
+                        ),
+                    )
         for name in ("validation_report.txt", "run_manifest.json", "run_manifest.txt"):
             path = run_directory / name
             if path.is_file():

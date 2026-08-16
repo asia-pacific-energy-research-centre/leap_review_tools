@@ -95,6 +95,8 @@ def test_diagnostics_bundle_contains_workbooks_diagnostics_dashboard_and_logs(
     diagnostics = tmp_path / "diagnostics"
     diagnostics.mkdir()
     (diagnostics / "leap_balance_source_review.csv").write_text("a,b\n1,2\n")
+    (diagnostics / "leap_export_readiness_findings.parquet").write_bytes(b"parquet")
+    (diagnostics / "leap_export_readiness_findings.parquet.manifest.json").write_text("{}")
     run_directory = tmp_path / "run"
     run_directory.mkdir()
     (run_directory / "run_manifest.json").write_text("{}")
@@ -128,6 +130,8 @@ def test_diagnostics_bundle_contains_workbooks_diagnostics_dashboard_and_logs(
         assert set(archive.namelist()) == {
             "workbooks/review.xlsx",
             "diagnostics/leap_balance_source_review.csv",
+            "diagnostics/leap_export_readiness_findings.parquet",
+            "diagnostics/leap_export_readiness_findings.parquet.manifest.json",
             "run_manifest.json",
             "dashboard/dashboards/index.html",
             "dashboard/dashboards/page.html",
