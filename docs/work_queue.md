@@ -45,6 +45,16 @@
 
 ## Planned
 
+- **WEBQ-001 — Migrate machine-only web/review intermediates to Parquet where
+  measured.** Participate in the cross-repository storage job coordinated by
+  `leap_initialisation/docs/work_queue.md` [44]. Inventory server-side source
+  tables, caches, archive-staging frames, and runtime-bundle data with every
+  producer/consumer. Benchmark Parquet+Zstandard against the current format;
+  do not introduce pickle. Preserve uploaded/downloadable XLSX/CSV, review
+  reports, browser storage, and dashboard JSON/HTML. If the server reads
+  Parquet, pin and test `pyarrow` in the prepared runtime, regenerate the
+  deployment bundle from committed sources, and prove manifest hashes plus
+  end-to-end workbook/dashboard equivalence before removing an old format.
 - Consider moving long workbook and dashboard stages into managed child
   processes if cancellation must interrupt the current atomic stage rather than
   waiting for its safe completion.
