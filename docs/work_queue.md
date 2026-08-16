@@ -46,7 +46,8 @@
 ## Planned
 
 - **WEBQ-001 — Migrate machine-only web/review intermediates to Parquet where
-  measured.** Participate in the cross-repository storage job coordinated by
+  measured.** `inventory_complete_no_code_only_candidate` (2026-08-16).
+  Participate in the cross-repository storage job coordinated by
   `leap_initialisation/docs/work_queue.md` [44]. Inventory server-side source
   tables, caches, archive-staging frames, and runtime-bundle data with every
   producer/consumer. Benchmark Parquet+Zstandard against the current format;
@@ -55,6 +56,12 @@
   Parquet, pin and test `pyarrow` in the prepared runtime, regenerate the
   deployment bundle from committed sources, and prove manifest hashes plus
   end-to-end workbook/dashboard equivalence before removing an old format.
+  The completed repository inventory found no pickle producer or disposable
+  server cache: its tabular files are source/published Common ESTO contracts,
+  runtime copies of those contracts, external inputs, or human-facing audit
+  and workbook artifacts. Retain them until the versioned Common ESTO contract
+  and every producer/consumer move atomically; do not add Parquet to this
+  repository merely to create a second copy of the same contract.
 - Consider moving long workbook and dashboard stages into managed child
   processes if cancellation must interrupt the current atomic stage rather than
   waiting for its safe completion.
