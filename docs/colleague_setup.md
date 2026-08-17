@@ -29,7 +29,9 @@ as the mapping output contract not existing before the first mapping run.
 Run in this order:
 
 1. In `leap_mappings`, run `codebase/run_mapping_pipeline.py` with no arguments.
-   This uses committed mapping configuration and the bounded validation path.
+   This uses committed mapping configuration, parses the bounded USA smoke
+   economy, and uses the bounded validation path. Use `--leap-economies all`
+   only for a deliberate multi-economy refresh after checking memory.
    Maintainers alone should add the `generate` stage after mapping edits or use
    `--deep-validation` after checking time and disk requirements.
 2. In `leap_dashboard`, run `codebase/common_esto_dashboard_workflow.py`. It
