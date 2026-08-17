@@ -2,6 +2,10 @@
 
 ## Completed
 
+- 2026-08-17: Add a read-only four-repository colleague setup audit and runbook
+  covering Python dependencies, Git clones, both portable bundles, LEAP
+  templates/USA balance exports, disk space, mapping-contract generation order,
+  and the file-only versus Windows LEAP COM boundary.
 - 2026-08-13: Preserve the complete portable dashboard bundle across browser
   snapshots, server publication and downloadable diagnostics archives, so both
   maintained comparison scopes and their mapping-diagnostics pages remain

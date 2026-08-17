@@ -30,6 +30,10 @@ runtime/            generated, git-ignored: the pulled closure
 
 ## Running it
 
+For a fresh four-repository setup, follow
+[`docs/colleague_setup.md`](docs/colleague_setup.md) and run the read-only
+`scripts/check_colleague_setup.py` audit before the first workflow.
+
 Two modes, and the app picks between them itself.
 
 **Development** — with `leap_initialisation`, `leap_mappings` and
