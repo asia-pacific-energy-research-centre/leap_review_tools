@@ -3439,8 +3439,16 @@ def poll_run(job_id: object, browser_archives: object):
         )
     if job.get("state") == "failed":
         return (
-            "", _status_html(str(job.get("message") or "Build failed.")), [], None,
-            RESULTS_EMPTY_HTML,
+            # Keep the files from the last completed run on screen.  A page
+            # refresh restores those first, and clearing them here made them
+            # appear briefly before the failed poll replaced them with empty
+            # components.  The failure message is still current and the run
+            # controls below are released as usual.
+            gr.skip(),
+            _status_html(str(job.get("message") or "Build failed.")),
+            gr.skip(),
+            gr.skip(),
+            gr.skip(),
             _dropdown_update(_browser_dashboard_choices(saved), None),
             saved,
             gr.Timer(active=False),
