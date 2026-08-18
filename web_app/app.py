@@ -3331,6 +3331,11 @@ def build_review_from_export(
                 d["economy"] for d in dashboards if d.get("error")
             ],
             "dashboard_archive_id": snapshot["archive_id"] if snapshot else None,
+            "dashboard_archive_ids": [
+                item["snapshot"]["archive_id"]
+                for item in snapshots
+                if item.get("snapshot", {}).get("archive_id")
+            ],
             "dashboard_storage": "browser-local",
             "runtime_seconds": runtime_seconds,
         }
@@ -3493,17 +3498,25 @@ def _last_run_record(
     held as compressed pages in the archive store, so links are rebuilt from
     those rather than from server paths that a restart would invalidate.
     """
-    records = archives if isinstance(archives, list) else []
+    try:
+        summary = json.loads(summary_json or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        summary = {}
+    if not isinstance(summary, dict):
+        summary = {}
+    current_archive_ids = summary.get("dashboard_archive_ids") or []
+    if not current_archive_ids and summary.get("dashboard_archive_id"):
+        # Compatibility with records written before multi-economy runs stored
+        # all current snapshot ids in the summary.
+        current_archive_ids = [summary["dashboard_archive_id"]]
+    if not isinstance(current_archive_ids, list):
+        current_archive_ids = []
     return {
         "summary": str(summary_json or ""),
         "status": str(status_html or ""),
         "workbooks": [str(path) for path in (workbooks or [])],
         "bundle": str(bundle) if bundle else "",
-        "archive_ids": [
-            str(record.get("archive_id"))
-            for record in records
-            if isinstance(record, dict) and record.get("archive_id")
-        ][:MAX_BROWSER_DASHBOARDS],
+        "archive_ids": [str(archive_id) for archive_id in current_archive_ids],
         "finished_at": _format_tokyo_timestamp(datetime.now(timezone.utc)),
     }
 
@@ -3614,9 +3627,12 @@ def resume_run(job_id: object, browser_archives: object):
             ),
         )
     # A run that finished while the page was away is collected on the next tick.
+    # Keep this distinct from "Running…": the calculator animation is keyed
+    # to that label, and a terminal job should not make a refresh look like a
+    # new multi-minute calculation while its final result is being collected.
     return (
         gr.Timer(active=True),
-        gr.Button("Running…", interactive=False),
+        gr.Button("Checking results…", interactive=False),
         gr.Button(visible=False),
     )
 
