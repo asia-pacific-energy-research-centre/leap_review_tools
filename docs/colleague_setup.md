@@ -9,17 +9,38 @@ leap_dashboard/
 leap_review_tools/
 ```
 
-Use the shared Python environment (currently
-`C:\Users\Work\miniconda3\python.exe`) and install the initialisation
-`environment.yml` if those imports are not already available. Place each
-restricted Google Drive ZIP under its matching repository's `data_bundles/`
-folder and run that repository's `scripts/extract_data_bundle.py`. No checksum
-sidecar, manual file copy, or extra `.gitkeep` is required.
+Miniconda supplies the environment manager, but its base environment does not
+contain the required packages. From the parent folder containing all four
+clones, create the shared Python 3.11 environment and install the three Python
+packages in editable mode:
+
+```powershell
+conda env create --file .\leap_review_tools\environment.yml
+conda activate leap-review
+python -m pip install --editable .\leap_initialisation
+python -m pip install --editable .\leap_mappings
+python -m pip install --editable .\leap_dashboard
+```
+
+Every repository carries the same `environment.yml`, so the environment can
+also be created from any one of the clones. The shared specification includes
+Plotly, Gradio, PyArrow, OpenPyXL, pandas, NumPy, and PyWin32 on Windows. To
+bring an existing environment up to date, run:
+
+```powershell
+conda env update --name leap-review --file .\leap_review_tools\environment.yml --prune
+conda activate leap-review
+```
+
+Place each restricted Google Drive ZIP under its matching repository's
+`data_bundles/` folder and run that repository's
+`scripts/extract_data_bundle.py`. No checksum sidecar, manual file copy, or
+extra `.gitkeep` is required.
 
 Run the read-only setup audit:
 
 ```powershell
-C:\Users\Work\miniconda3\python.exe scripts\check_colleague_setup.py
+python .\leap_review_tools\scripts\check_colleague_setup.py
 ```
 
 If the repositories are elsewhere, set `LEAP_SOURCE_PARENT` first. Resolve all

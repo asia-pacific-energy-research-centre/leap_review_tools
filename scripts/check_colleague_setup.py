@@ -26,6 +26,7 @@ REPOSITORIES = (
     "leap_review_tools",
 )
 REQUIRED_IMPORTS = ("pandas", "openpyxl", "pyarrow", "plotly", "gradio")
+SHARED_ENVIRONMENT_FILE = "environment.yml"
 INITIALISATION_INPUTS = (
     "data/00APEC_2024_low_with_subtotals.csv",
     "data/00APEC_2025_low_with_subtotals.csv",
@@ -95,6 +96,43 @@ def check_python_environment() -> list[dict[str, str]]:
     return results
 
 
+def check_shared_environment_files(source_parent: Path) -> list[dict[str, str]]:
+    """Confirm every sibling repository carries the same environment contract."""
+    paths = {
+        name: source_parent / name / SHARED_ENVIRONMENT_FILE
+        for name in REPOSITORIES
+    }
+    missing = [name for name, path in paths.items() if not path.is_file()]
+    if missing:
+        return [
+            _result(
+                "FAIL",
+                "shared environment",
+                "missing environment.yml in: " + ", ".join(missing),
+            )
+        ]
+
+    canonical = paths["leap_review_tools"].read_bytes()
+    different = [
+        name for name, path in paths.items() if path.read_bytes() != canonical
+    ]
+    if different:
+        return [
+            _result(
+                "FAIL",
+                "shared environment",
+                "environment.yml differs in: " + ", ".join(different),
+            )
+        ]
+    return [
+        _result(
+            "PASS",
+            "shared environment",
+            "environment.yml is identical in all four repositories",
+        )
+    ]
+
+
 def check_data_inputs(source_parent: Path) -> list[dict[str, str]]:
     results = []
     initialisation = source_parent / "leap_initialisation"
@@ -143,6 +181,7 @@ def run_colleague_setup_checks(source_parent: Path) -> list[dict[str, str]]:
     source_parent = Path(source_parent).resolve()
     return [
         *check_python_environment(),
+        *check_shared_environment_files(source_parent),
         *check_repositories(source_parent),
         *check_data_inputs(source_parent),
         *check_disk_space(source_parent),
