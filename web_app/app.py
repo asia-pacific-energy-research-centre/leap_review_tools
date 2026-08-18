@@ -1876,15 +1876,41 @@ def _browser_dashboard_choices(records: object) -> list[tuple[str, str]]:
                 f"{record.get('economy', 'unknown')} / "
                 f"{record.get('scenario', 'unknown')} / "
                 f"{record.get('years', '')} "
-                f"({_format_tokyo_timestamp(record.get('created_at', ''))})",
+                f"({_run_timestamp_label(record)})",
                 str(record["archive_id"]),
             )
         )
     return choices
 
 
+def _run_timestamp_label(record: object) -> str:
+    """Return one consistent, compact timestamp for a prior run."""
+    value = record.get("created_at") if isinstance(record, dict) else record
+    formatted = _format_tokyo_timestamp(value, include_seconds=True)
+    if formatted:
+        try:
+            parsed = datetime.strptime(
+                formatted, "%Y-%m-%d %H:%M:%S JST"
+            ).replace(tzinfo=TOKYO_TIMEZONE)
+            return parsed.strftime("%d %b %Y %H:%M:%S JST")
+        except ValueError:
+            pass
+    if isinstance(record, dict):
+        archive_id = str(record.get("archive_id") or "")
+        match = re.match(r"^(\d{8}T\d{6}Z)", archive_id)
+        if match:
+            try:
+                parsed = datetime.strptime(
+                    match.group(1), "%Y%m%dT%H%M%SZ"
+                ).replace(tzinfo=timezone.utc)
+                return _as_tokyo_time(parsed).strftime("%d %b %Y %H:%M:%S JST")
+            except ValueError:
+                pass
+    return "Time unavailable"
+
+
 def _saved_dashboard_button_labels(records: list[dict[str, object]]) -> list[str]:
-    """Describe saved dashboards, adding creation time only for duplicates."""
+    """Describe saved dashboards with the same timestamp format every time."""
     base_labels: list[str] = []
     for record in records:
         economy = str(record.get("economy") or "Unknown economy")
@@ -1903,29 +1929,10 @@ def _saved_dashboard_button_labels(records: list[dict[str, object]]) -> list[str
             details.append(years)
         base_labels.append(" · ".join(details))
 
-    labels: list[str] = []
-    for record, base_label in zip(records, base_labels):
-        label = base_label
-        if base_labels.count(base_label) > 1:
-            archive_id = str(record.get("archive_id") or "")
-            match = re.match(r"^(\d{8}T\d{6}Z)", archive_id)
-            if match:
-                created = datetime.strptime(
-                    match.group(1), "%Y%m%dT%H%M%SZ"
-                ).replace(tzinfo=timezone.utc)
-                created_label = _as_tokyo_time(created).strftime(
-                    "%d %b %Y %H:%M:%S JST"
-                )
-            else:
-                created_label = (
-                    _format_tokyo_timestamp(
-                        record.get("created_at"), include_seconds=True
-                    )
-                    or "Saved time unknown"
-                )
-            label = f"{label} · {created_label}"
-        labels.append(f"{label} dashboard")
-    return labels
+    return [
+        f"{base_label} · {_run_timestamp_label(record)} dashboard"
+        for record, base_label in zip(records, base_labels)
+    ]
 
 
 def _browser_dashboard_record(
@@ -3565,7 +3572,7 @@ def restore_last_run(last_run: object, browser_archives: object):
     expired = bool(record.get("workbooks")) and not surviving
     note = (
         f"<span class='result-hint'>Restored from "
-        f"{html.escape(_format_tokyo_timestamp(record.get('finished_at', '')))}."
+        f"{html.escape(_run_timestamp_label({'created_at': record.get('finished_at', '')}))}."
         + (
             " The downloads from that run have since been cleared from the server."
             if expired

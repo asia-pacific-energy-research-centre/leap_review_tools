@@ -82,7 +82,7 @@ def test_saved_dashboard_labels_use_details_then_time_to_disambiguate() -> None:
     assert labels == [
         "16_RUS · Target · 2022, 2023 · 12 Aug 2026 13:55:00 JST dashboard",
         "16_RUS · Target · 2022, 2023 · 12 Aug 2026 14:10:15 JST dashboard",
-        "05_PRC · Reference + Target · 2022 dashboard",
+        "05_PRC · Reference + Target · 2022 · 12 Aug 2026 15:00:00 JST dashboard",
     ]
 
 
