@@ -49,6 +49,17 @@
 
 ## Planned
 
+- **WEBQ-002 — Audit coal-transformation comparison boundaries and baseline
+  seeds for Coke ovens and Blast furnaces.** Australia shows material
+  base-year differences for `09.08.01 Coke ovens (including own use)` and
+  `09.08.02 Blast furnaces (including own use)`. Investigate separately:
+  (1) whether the LEAP baseline seed reproduces the ESTO inclusive
+  transformation-plus-own-use boundary; and (2) whether the Ninth-to-ESTO
+  coal-products allocation preserves the appropriate scope and signs. Do not
+  change baseline seed logic to compensate for a Ninth mapping discrepancy.
+  Establish expected fuel-level values and conservation checks before changing
+  either workflow, then regenerate the Australia dashboard to verify all three
+  sources at the inclusive boundaries.
 - **WEBQ-001 — Migrate machine-only web/review intermediates to Parquet where
   measured.** `inventory_complete_no_code_only_candidate` (2026-08-16).
   Participate in the cross-repository storage job coordinated by
