@@ -40,6 +40,7 @@ from web_app.runtime_profile import (
     record_runtime_sample,
     samples_behind_estimate,
 )
+from web_app.version_comparison import apply_version_comparison
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -2281,7 +2282,9 @@ def append_uploaded_exports(current: object, added: object) -> tuple[object, obj
     return [str(path) for path in paths], None
 
 
-def clear_uploaded_export() -> tuple[object, str, object, object, object]:
+def clear_uploaded_export() -> tuple[
+    object, str, object, object, object, object, object, object
+]:
     """Drop the loaded export so a different one can be added.
 
     Gradio's own clear control is an unlabelled icon, which is easy to miss;
@@ -2302,6 +2305,9 @@ def clear_uploaded_export() -> tuple[object, str, object, object, object]:
         gr.Textbox(visible=False, value=""),
         gr.Button(visible=False),
         gr.File(visible=False),
+        gr.Column(visible=False),
+        gr.Dropdown(value=None, choices=[]),
+        gr.Dropdown(value=None, choices=[]),
     )
 
 
@@ -2366,6 +2372,11 @@ def start_run(
     balance_export_workbook: object,
     browser_archives: object,
     upload_is_live: object = True,
+    compare_versions: object = False,
+    original_export_name: object = None,
+    new_export_name: object = None,
+    green_percent: object = 0.1,
+    yellow_percent: object = 5.0,
 ) -> tuple[str, object]:
     """Begin a build in the background and return its job id.
 
@@ -2411,6 +2422,11 @@ def start_run(
                 browser_archives,
                 progress=report,
                 cancellation_check=lambda: _job_cancel_requested(job_id),
+                compare_versions=compare_versions,
+                original_export_name=original_export_name,
+                new_export_name=new_export_name,
+                green_percent=green_percent,
+                yellow_percent=yellow_percent,
             )
             _raise_if_cancelled(lambda: _job_cancel_requested(job_id))
             _set_job(
@@ -2770,6 +2786,57 @@ def without_duplicates(uploads: list[ExportUpload]) -> list[ExportUpload]:
     return [upload for upload in uploads if upload.path.name not in superseded]
 
 
+def selected_version_uploads(
+    uploads: list[ExportUpload], original_name: object, new_name: object
+) -> tuple[ExportUpload, ExportUpload]:
+    """Return two explicitly labelled exports after strict identity checks."""
+    by_name = {upload.path.name: upload for upload in uploads if upload.ok}
+    original = by_name.get(str(original_name or ""))
+    new = by_name.get(str(new_name or ""))
+    if original is None or new is None or original.path == new.path:
+        raise ValueError("Choose two different uploaded files as Original and New.")
+    original_identity = (original.economy, original.scenario, original.years)
+    new_identity = (new.economy, new.scenario, new.years)
+    if original_identity != new_identity:
+        raise ValueError(
+            "Version comparison requires the same economy, scenario, and year "
+            "coverage in both files."
+        )
+    return original, new
+
+
+def version_comparison_control_updates(
+    balance_export_workbook: object,
+) -> tuple[object, object, object]:
+    """Offer roles only when two exports describe the same LEAP run."""
+    import gradio as gr
+
+    uploads = [upload for upload in read_uploads(balance_export_workbook) if upload.ok]
+    groups: dict[tuple[str, str, tuple[int, ...]], list[ExportUpload]] = {}
+    for upload in uploads:
+        groups.setdefault((upload.economy, upload.scenario, upload.years), []).append(
+            upload
+        )
+    candidates = [group for group in groups.values() if len(group) >= 2]
+    if len(candidates) != 1:
+        return gr.Column(visible=False), gr.Dropdown(), gr.Dropdown()
+    names = [upload.path.name for upload in candidates[0]]
+    return (
+        gr.Column(visible=True),
+        gr.Dropdown(choices=names, value=names[0]),
+        gr.Dropdown(choices=names, value=names[1]),
+    )
+
+
+def version_comparison_output_updates(compare_versions: object) -> tuple[object, object]:
+    """A version comparison has one dashboard output, never a workbook."""
+    import gradio as gr
+
+    if bool(compare_versions):
+        return gr.Checkbox(value=False, interactive=False), gr.Checkbox(value=True)
+    return gr.Checkbox(interactive=True), gr.Checkbox()
+
+
 def _uploads_table(
     uploads: list[ExportUpload], superseded: dict[str, str] | None = None
 ) -> str:
@@ -2997,6 +3064,11 @@ def build_review_from_export(
     cancellation_check: object = None,
     dashboard_min_year: float = DEFAULT_DASHBOARD_MIN_YEAR,
     dashboard_max_year: float = DEFAULT_DASHBOARD_MAX_YEAR,
+    compare_versions: object = False,
+    original_export_name: object = None,
+    new_export_name: object = None,
+    green_percent: object = 0.1,
+    yellow_percent: object = 5.0,
 ) -> tuple[str, str, object, str | None, str, object, object]:
     """Build the outputs a run asked for, from one LEAP export."""
     persistent_bundle: Path | None = None
@@ -3022,16 +3094,31 @@ def build_review_from_export(
         dashboard_min_year_value = int(dashboard_min_year)
         dashboard_max_year_value = int(dashboard_max_year)
 
+        is_version_comparison = bool(compare_versions)
         uploads = read_uploads(balance_export_workbook)
         if not uploads:
             raise ValueError("Please upload at least one LEAP Energy Balance export.")
         # An export uploaded twice under two names is one export. Building it
         # again would double the wait for a second copy of the same dashboard.
-        uploads = without_duplicates(uploads)
+        if not is_version_comparison:
+            uploads = without_duplicates(uploads)
         unreadable = [upload for upload in uploads if not upload.ok]
         readable = [upload for upload in uploads if upload.ok]
         if not readable:
             raise ValueError(unreadable[0].error)
+        if is_version_comparison:
+            if wants_workbook or not wants_dashboard:
+                raise ValueError("Version comparison builds a dashboard only.")
+            original_upload, new_upload = selected_version_uploads(
+                readable, original_export_name, new_export_name
+            )
+            green_percent_value = float(green_percent)
+            yellow_percent_value = float(yellow_percent)
+            if green_percent_value < 0 or yellow_percent_value < green_percent_value:
+                raise ValueError("Yellow tolerance must be at least the green tolerance.")
+        else:
+            original_upload = new_upload = None
+            green_percent_value = yellow_percent_value = None
 
         override = str(economy_override or "").strip()
         grouped = group_by_economy(readable)
@@ -3045,7 +3132,18 @@ def build_review_from_export(
                 "Enter the economy code so the run knows which one to use."
             )
 
-        wanted_economies = [
+        if is_version_comparison:
+            assert original_upload is not None and new_upload is not None
+            economy_value = original_upload.economy
+            scenario_value = original_upload.scenario
+            wanted_economies = [economy_value]
+            economy_uploads = [original_upload, new_upload]
+        else:
+            economy_value = ""
+            scenario_value = ""
+            economy_uploads = []
+
+        selected_economies = [
             name
             for name in (
                 economy_choice
@@ -3054,10 +3152,10 @@ def build_review_from_export(
             )
             if str(name or "").strip() in grouped
         ]
-        if not wanted_economies:
-            wanted_economies = list(grouped)
-        economy_value = wanted_economies[0]
-        economy_uploads = grouped[economy_value]
+        if not is_version_comparison:
+            wanted_economies = selected_economies or list(grouped)
+            economy_value = wanted_economies[0]
+            economy_uploads = grouped[economy_value]
 
         # A workbook is built for one economy and scenario. With several files
         # uploaded the interface offers only the dashboard, and this guard keeps
@@ -3068,7 +3166,7 @@ def build_review_from_export(
                 "for a workbook, or build the dashboard from this set."
             )
 
-        scenario_value = economy_uploads[0].scenario
+        scenario_value = scenario_value or economy_uploads[0].scenario
         wanted_scenario = str(scenario_choice or "").strip()
         if wanted_scenario:
             for upload in economy_uploads:
@@ -3098,7 +3196,7 @@ def build_review_from_export(
         for name in wanted_economies:
             directory = run_root / "exports" / _safe_filename_token(name)
             directory.mkdir(parents=True, exist_ok=True)
-            for upload in grouped[name]:
+            for upload in (economy_uploads if is_version_comparison else grouped[name]):
                 _copy_input(upload.path, directory)
             export_directories[name] = directory
         local_export = _copy_input(workbook_upload.path, run_root / "uploads")
@@ -3136,6 +3234,7 @@ def build_review_from_export(
         dashboard_directory: Path | None = None
         dashboard_page_names: list[str] = []
         dashboard_seconds: float | None = None
+        version_state_counts: dict[str, int] = {}
         # One dashboard per economy: the renderer covers a single economy, so
         # several are rendered in turn and reported separately.
         dashboards: list[dict[str, object]] = []
@@ -3151,15 +3250,52 @@ def build_review_from_export(
                 # One economy failing must not discard the ones already
                 # rendered: a multi-economy run is too long to lose whole.
                 try:
-                    outcome = developer_launcher.run_dashboard_from_export(
-                        context=context,
-                        economy=name,
-                        export_dir=export_directories[name],
-                        esto_table_path=local_esto,
-                        min_year=dashboard_min_year_value,
-                        max_year=dashboard_max_year_value,
-                        run_label="web",
-                    )
+                    if is_version_comparison:
+                        assert original_upload is not None and new_upload is not None
+                        role_outcomes = {}
+                        for role, upload in (
+                            ("original", original_upload),
+                            ("new", new_upload),
+                        ):
+                            role_directory = run_root / "version_exports" / role
+                            role_directory.mkdir(parents=True, exist_ok=True)
+                            _copy_input(upload.path, role_directory)
+                            role_outcomes[role] = (
+                                developer_launcher.run_dashboard_from_export(
+                                    context=context,
+                                    economy=name,
+                                    export_dir=role_directory,
+                                    esto_table_path=local_esto,
+                                    min_year=dashboard_min_year_value,
+                                    max_year=dashboard_max_year_value,
+                                    run_label=f"web-version-{role}",
+                                )
+                            )
+                        original_outcome = role_outcomes["original"]
+                        outcome = role_outcomes["new"]
+                        if not original_outcome.ok:
+                            raise RuntimeError(
+                                original_outcome.error
+                                or "Original dashboard generation failed."
+                            )
+                        if outcome.ok:
+                            version_state_counts = apply_version_comparison(
+                                Path(original_outcome.outputs["dashboard_index"]).parent,
+                                Path(outcome.outputs["dashboard_index"]).parent,
+                                scenario=scenario_value,
+                                green_percent=green_percent_value,
+                                yellow_percent=yellow_percent_value,
+                            )
+                    else:
+                        outcome = developer_launcher.run_dashboard_from_export(
+                            context=context,
+                            economy=name,
+                            export_dir=export_directories[name],
+                            esto_table_path=local_esto,
+                            min_year=dashboard_min_year_value,
+                            max_year=dashboard_max_year_value,
+                            run_label="web",
+                        )
                 except Exception as error:  # noqa: BLE001 - reported per economy
                     dashboards.append({"economy": name, "error": str(error)})
                     continue
@@ -3306,6 +3442,19 @@ def build_review_from_export(
             ),
             "leap_area_name": workbook_upload.area_name,
             "exports_used": [upload.path.name for upload in economy_uploads],
+            "version_comparison": (
+                {
+                    "original": original_upload.path.name,
+                    "new": new_upload.path.name,
+                    "green_percent": green_percent_value,
+                    "yellow_percent": yellow_percent_value,
+                    "card_state_counts": version_state_counts,
+                }
+                if is_version_comparison
+                and original_upload is not None
+                and new_upload is not None
+                else None
+            ),
             "economies_uploaded": sorted(grouped),
             "scenario": scenario_value,
             "years": years_built,
@@ -3797,6 +3946,34 @@ def create_app():
                 value=EXPORT_PROMPT_HTML,
                 elem_id="export-readout",
             )
+            with gr.Column(
+                visible=False, elem_id="version-comparison-controls"
+            ) as version_comparison_controls:
+                compare_versions = gr.Checkbox(
+                    label="Compare these two LEAP export versions",
+                    value=False,
+                    info=(
+                        "Choose which filename is the original and which is the "
+                        "new version. This creates a dashboard only."
+                    ),
+                )
+                with gr.Row():
+                    original_export_name = gr.Dropdown(
+                        label="Original version (filename)"
+                    )
+                    new_export_name = gr.Dropdown(label="New version (filename)")
+                with gr.Row():
+                    green_percent = gr.Number(
+                        label="Green tolerance (% absolute difference)",
+                        value=0.1,
+                        minimum=0,
+                    )
+                    yellow_percent = gr.Number(
+                        label="Yellow tolerance (% absolute difference)",
+                        value=5.0,
+                        minimum=0,
+                        info="Red means above this tolerance.",
+                    )
             with gr.Row(elem_id="export-actions"):
                 clear_export_button = gr.Button(
                     "Use a different export",
@@ -4008,6 +4185,9 @@ def create_app():
                 economy_override,
                 clear_export_button,
                 add_export,
+                version_comparison_controls,
+                original_export_name,
+                new_export_name,
             ],
         )
         add_export.change(
@@ -4032,10 +4212,27 @@ def create_app():
                 want_dashboard,
             ],
         ).then(
+            fn=version_comparison_control_updates,
+            inputs=balance_export_workbook,
+            outputs=[
+                version_comparison_controls,
+                original_export_name,
+                new_export_name,
+            ],
+        ).then(
             # Inspection can populate the review year and change which outputs
             # are available. Quote readiness only after those values settle;
             # parallel callbacks raced and left Run disabled until Dashboard
             # was clicked a second time.
+            fn=update_runtime_notes,
+            inputs=[year, want_workbook, want_dashboard, balance_export_workbook],
+            outputs=[workbook_runtime_note, calculator_animation, run_button],
+        )
+        compare_versions.change(
+            fn=version_comparison_output_updates,
+            inputs=compare_versions,
+            outputs=[want_workbook, want_dashboard],
+        ).then(
             fn=update_runtime_notes,
             inputs=[year, want_workbook, want_dashboard, balance_export_workbook],
             outputs=[workbook_runtime_note, calculator_animation, run_button],
@@ -4076,6 +4273,11 @@ def create_app():
                 balance_export_workbook,
                 browser_archives,
                 upload_is_live,
+                compare_versions,
+                original_export_name,
+                new_export_name,
+                green_percent,
+                yellow_percent,
             ],
             outputs=[active_job, cancel_button],
         ).then(
