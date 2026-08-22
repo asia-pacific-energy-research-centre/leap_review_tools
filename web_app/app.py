@@ -610,6 +610,20 @@ body, gradio-app {
 }
 .upload-row strong { color: var(--ink); overflow-wrap: anywhere; }
 .upload-row span { color: var(--muted); }
+.upload-file-name { display: inline-flex; align-items: center; gap: 0.45rem; min-width: 0; }
+.upload-version {
+  flex: 0 0 auto;
+  padding: 0.12rem 0.38rem;
+  border: 1px solid #d7b08b;
+  border-radius: 999px;
+  background: #fff8f1;
+  color: #7a451f !important;
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
 .upload-native-actions {
   display: inline-flex;
   align-items: center;
@@ -3147,13 +3161,21 @@ def confirm_version_comparison(
 
 
 def _uploads_table(
-    uploads: list[ExportUpload], superseded: dict[str, str] | None = None
+    uploads: list[ExportUpload],
+    superseded: dict[str, str] | None = None,
+    version_roles: dict[str, str] | None = None,
 ) -> str:
     """Return one row per uploaded file, saying what was read from it."""
     superseded = superseded or {}
+    version_roles = version_roles or {}
     rows = []
     for upload in uploads:
         name = html.escape(upload.path.name)
+        role = version_roles.get(upload.path.name)
+        version_badge = (
+            f"<span class='upload-version'>{html.escape(role)}</span>" if role else ""
+        )
+        file_name = f"<span class='upload-file-name'><strong>{name}</strong>{version_badge}</span>"
         repeats = superseded.get(upload.path.name)
         if repeats:
             detail = (
@@ -3161,7 +3183,7 @@ def _uploads_table(
                 f"years as {html.escape(repeats)} — not used</span>"
             )
             rows.append(
-                f"<li class='upload-row is-dupe'><strong>{name}</strong>{detail}</li>"
+                f"<li class='upload-row is-dupe'>{file_name}{detail}</li>"
             )
             continue
         if upload.ok:
@@ -3180,9 +3202,40 @@ def _uploads_table(
             detail = f"<span class='upload-error'>{html.escape(upload.error)}</span>"
             state = "bad"
         rows.append(
-            f"<li class='upload-row is-{state}'><strong>{name}</strong>{detail}</li>"
+            f"<li class='upload-row is-{state}'>{file_name}{detail}</li>"
         )
     return f"<ul class='upload-list'>{''.join(rows)}</ul>"
+
+
+def version_comparison_readout(
+    balance_export_workbook: object,
+    original_name: object,
+    new_name: object,
+    compare_versions: object,
+) -> object:
+    """Record the chosen version roles in the existing upload details."""
+    import gradio as gr
+
+    if not compare_versions:
+        return gr.skip()
+    original = str(original_name or "")
+    new = str(new_name or "")
+    if not original or original == new:
+        return gr.skip()
+    uploads = read_uploads(balance_export_workbook)
+    roles = {original: "Version 1", new: "Version 2"}
+    uploaded_names = {upload.path.name for upload in uploads}
+    if not all(name in uploaded_names for name in roles):
+        return gr.skip()
+    return _export_readout_html(
+        state="ready",
+        label="Read from your exports",
+        body=(
+            _uploads_table(uploads, version_roles=roles)
+            + "<p>Version 1 and Version 2 will be compared in one dashboard.</p>"
+        ),
+        multiple=True,
+    )
 
 
 def inspect_uploaded_export(
@@ -4590,6 +4643,15 @@ def create_app():
                 want_dashboard,
                 version_comparison_controls,
             ],
+        ).then(
+            fn=version_comparison_readout,
+            inputs=[
+                balance_export_workbook,
+                original_export_name,
+                new_export_name,
+                compare_versions,
+            ],
+            outputs=export_readout,
         ).then(
             fn=update_runtime_notes,
             inputs=[year, want_workbook, want_dashboard, balance_export_workbook],

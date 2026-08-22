@@ -5,6 +5,7 @@ import pytest
 from web_app.app import (
     ExportUpload,
     _matching_version_pair,
+    _uploads_table,
     _esto_vintage_choices,
     adjust_review_year_for_vintage,
     confirm_version_comparison,
@@ -31,6 +32,22 @@ def test_version_prompt_confirm_requires_two_distinct_files() -> None:
     assert "Choose different files" in version_comparison_selection_update(
         "same.xlsx", "same.xlsx"
     )[1]
+
+
+def test_version_roles_are_shown_in_the_existing_upload_rows() -> None:
+    original = ExportUpload(Path("original.xlsx"), "01_AUS", "Target", (2022, 2060))
+    new = ExportUpload(Path("new.xlsx"), "01_AUS", "Target", (2022, 2060))
+
+    readout = _uploads_table(
+        [original, new],
+        version_roles={"original.xlsx": "Version 1", "new.xlsx": "Version 2"},
+    )
+
+    assert "upload-file-name" in readout
+    assert "upload-version'>Version 1" in readout
+    assert "upload-version'>Version 2" in readout
+    assert "01_AUS" in readout
+    assert "2022–2060" in readout
 
 
 def test_only_one_matching_two_file_upload_opens_the_version_prompt() -> None:
