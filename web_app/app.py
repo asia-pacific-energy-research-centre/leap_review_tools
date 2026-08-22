@@ -742,34 +742,34 @@ body.app-is-processing #app-wait-overlay { display: flex; }
   margin: 0 !important;
 }
 #build-choice-heading > .form {
-  flex: 0 0 330px !important;
-  width: 330px !important;
-  min-width: 330px !important;
+  flex: 0 0 390px !important;
+  width: 390px !important;
+  min-width: 390px !important;
 }
 #build-choice-heading #esto-vintage {
   margin-top: 0 !important;
 }
 #esto-vintage .secondary-wrap {
   position: relative !important;
-  min-height: 4.15rem !important;
-  border: 2px solid var(--orange) !important;
+  min-height: 3.7rem !important;
+  border: 1px solid var(--line) !important;
   border-radius: 7px !important;
-  background: #fff7ef !important;
-  box-shadow: 0 0 0 3px rgba(232, 93, 36, 0.1) !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
 }
 #esto-vintage .secondary-wrap::before {
   content: attr(data-display);
   position: absolute;
-  inset: 0.55rem 3rem 0.45rem 0.8rem;
+  inset: 0.5rem 3rem 0.4rem 0.8rem;
   overflow: hidden;
   color: var(--ink);
-  font-size: 0.98rem;
+  font-size: 0.88rem;
   line-height: 1.25;
   white-space: pre-line;
   pointer-events: none;
 }
 #esto-vintage input {
-  min-height: 4.15rem !important;
+  min-height: 3.7rem !important;
   padding-right: 3rem !important;
   color: transparent !important;
   -webkit-text-fill-color: transparent !important;
@@ -778,7 +778,7 @@ body.app-is-processing #app-wait-overlay { display: flex; }
   right: 0.75rem !important;
   width: 1.25rem !important;
   height: 1.25rem !important;
-  color: var(--orange) !important;
+  color: var(--muted) !important;
 }
 .unit-warning {
   margin: 0.45rem 0 0;
