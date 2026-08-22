@@ -731,6 +731,9 @@ body, gradio-app {
   background: rgba(35, 30, 24, 0.62);
 }
 body.app-is-processing #app-wait-overlay { display: flex; }
+/* During a dashboard build, the calculator is the progress indicator. Do not
+   cover it with the short upload-update overlay as Gradio refreshes fields. */
+body.run-active #app-wait-overlay { display: none !important; }
 #app-wait-overlay .wait-card {
   width: min(300px, 100%);
   padding: 1.2rem 1.4rem;
@@ -1682,7 +1685,12 @@ APP_JS = """
       const processing = document.querySelector(
         '#upload-card .pending, #upload-card .generating'
       );
-      document.body.classList.toggle('app-is-processing', !!processing);
+      const runControl = document.querySelector('#run-button');
+      const runButton = runControl && (runControl.tagName === 'BUTTON'
+        ? runControl : runControl.querySelector('button'));
+      const running = runButton && runButton.disabled &&
+        (runButton.textContent || '').trim().toLowerCase().startsWith('running');
+      document.body.classList.toggle('app-is-processing', !!processing && !running);
     };
     update();
     new MutationObserver(update).observe(document.body, {
