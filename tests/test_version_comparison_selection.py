@@ -4,11 +4,13 @@ import pytest
 
 from web_app.app import (
     ExportUpload,
+    _matching_version_pair,
     _esto_vintage_choices,
     adjust_review_year_for_vintage,
     confirm_version_comparison,
     dismiss_version_comparison,
     selected_version_uploads,
+    version_comparison_selection_update,
 )
 
 
@@ -25,8 +27,22 @@ def test_selected_versions_must_share_identity() -> None:
 
 
 def test_version_prompt_confirm_and_dismiss_choose_the_expected_mode() -> None:
-    assert confirm_version_comparison()[0] is True
+    assert confirm_version_comparison("old.xlsx", "new.xlsx")[0] is True
+    assert confirm_version_comparison("same.xlsx", "same.xlsx")[0] is False
+    assert "Choose different files" in version_comparison_selection_update(
+        "same.xlsx", "same.xlsx"
+    )[1]
     assert dismiss_version_comparison()[0] is False
+
+
+def test_only_one_matching_two_file_upload_opens_the_version_prompt() -> None:
+    first = ExportUpload(Path("first.xlsx"), "01_AUS", "Target", (2022, 2060))
+    second = ExportUpload(Path("second.xlsx"), "01_AUS", "Target", (2022, 2060))
+    other = ExportUpload(Path("other.xlsx"), "01_AUS", "Reference", (2022, 2060))
+
+    assert _matching_version_pair([first, second]) == [first, second]
+    assert _matching_version_pair([first, other]) == []
+    assert _matching_version_pair([first, second, other]) == []
 
 
 def test_esto_vintage_picker_uses_available_maintained_releases() -> None:

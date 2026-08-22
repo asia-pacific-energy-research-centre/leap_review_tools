@@ -690,7 +690,15 @@ body, gradio-app {
   margin: 0 0 1rem !important;
   color: var(--muted) !important;
 }
+.version-selection-error {
+  display: block;
+  margin-top: 0.4rem;
+  color: #b42318;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
 #build-choice-heading { align-items: center !important; gap: 0.45rem !important; }
+#build-choice-heading { flex-wrap: nowrap !important; }
 #build-choice-heading #build-choice-title { flex: 1 1 auto !important; margin-right: 1.25rem; }
 #build-choice-heading #build-choice-vintage-label { flex: 0 0 auto !important; }
 #build-choice-heading #esto-vintage,
@@ -2387,7 +2395,7 @@ def append_uploaded_exports(current: object, added: object) -> tuple[object, obj
 
 
 def clear_uploaded_export() -> tuple[
-    object, str, object, object, object, object, object, object, bool
+    object, str, object, object, object, object, object, object, bool, str
 ]:
     """Drop the loaded export so a different one can be added.
 
@@ -2413,6 +2421,7 @@ def clear_uploaded_export() -> tuple[
         gr.Dropdown(value=None, choices=[]),
         gr.Dropdown(value=None, choices=[]),
         False,
+        "",
     )
 
 
@@ -2908,34 +2917,62 @@ def selected_version_uploads(
     return original, new
 
 
+def _matching_version_pair(uploads: list[ExportUpload]) -> list[ExportUpload]:
+    """Return the one eligible two-file version pair, if there is one."""
+    readable = [upload for upload in uploads if upload.ok]
+    if len(readable) != 2:
+        return []
+    first, second = readable
+    identity = lambda upload: (upload.economy, upload.scenario, upload.years)
+    return readable if identity(first) == identity(second) else []
+
+
 def version_comparison_control_updates(
     balance_export_workbook: object,
-) -> tuple[object, object, object, bool]:
+) -> tuple[object, object, object, bool, str]:
     """Open the version prompt only for one matching pair of exports."""
     import gradio as gr
 
-    uploads = [upload for upload in read_uploads(balance_export_workbook) if upload.ok]
-    groups: dict[tuple[str, str, tuple[int, ...]], list[ExportUpload]] = {}
-    for upload in uploads:
-        groups.setdefault((upload.economy, upload.scenario, upload.years), []).append(
-            upload
-        )
-    candidates = [group for group in groups.values() if len(group) >= 2]
-    if len(candidates) != 1:
-        return gr.Column(visible=False), gr.Dropdown(), gr.Dropdown(), False
-    names = [upload.path.name for upload in candidates[0]]
+    pair = _matching_version_pair(read_uploads(balance_export_workbook))
+    if not pair:
+        return gr.Column(visible=False), gr.Dropdown(), gr.Dropdown(), False, ""
+    names = [upload.path.name for upload in pair]
     return (
         gr.Column(visible=True),
         gr.Dropdown(choices=names, value=names[0]),
         gr.Dropdown(choices=names, value=names[1]),
         False,
+        "",
     )
 
 
-def confirm_version_comparison() -> tuple[bool, object, object, object]:
+def version_comparison_selection_update(
+    original_name: object, new_name: object
+) -> tuple[object, str]:
+    """Keep Compare unavailable until the two selected files differ."""
+    import gradio as gr
+
+    if not str(original_name or "") or str(original_name) == str(new_name or ""):
+        return (
+            gr.Button(interactive=False),
+            "<span class='version-selection-error'>Choose different files.</span>",
+        )
+    return gr.Button(interactive=True), ""
+
+
+def confirm_version_comparison(
+    original_name: object, new_name: object
+) -> tuple[bool, object, object, object]:
     """Accept the two selected roles and switch the run to dashboard-only."""
     import gradio as gr
 
+    if not str(original_name or "") or str(original_name) == str(new_name or ""):
+        return (
+            False,
+            gr.Checkbox(),
+            gr.Checkbox(),
+            gr.Column(visible=True),
+        )
     return (
         True,
         gr.Checkbox(value=False, interactive=False),
@@ -3016,13 +3053,17 @@ def inspect_uploaded_export(
             gr.Checkbox(),
         )
 
-    # A repeat of an export already uploaded is set aside here, so the run is
-    # shaped by what it will actually build rather than by the file count.
-    superseded = duplicate_uploads(uploads)
-    effective = [upload for upload in uploads if upload.path.name not in superseded]
+    # A matching pair is held neutral while the popup asks whether it is a
+    # version comparison. Do not label either file as unused before the user
+    # has made that choice.
+    version_pair = _matching_version_pair(uploads)
+    superseded = {} if version_pair else duplicate_uploads(uploads)
+    effective = uploads if version_pair else [
+        upload for upload in uploads if upload.path.name not in superseded
+    ]
     grouped = group_by_economy(effective)
     economies = list(grouped)
-    multiple = len(effective) > 1
+    multiple = len(effective) > 1 and not version_pair
     readable = [upload for upload in effective if upload.ok]
     unnamed = [upload for upload in readable if not upload.economy]
 
@@ -4088,6 +4129,9 @@ def create_app():
                     confirm_version_button = gr.Button(
                         "Compare these versions", variant="primary"
                     )
+                version_selection_note = gr.HTML(
+                    value="", elem_id="version-selection-note"
+                )
             compare_versions = gr.State(False)
             with gr.Row(elem_id="export-actions"):
                 clear_export_button = gr.Button(
@@ -4322,6 +4366,7 @@ def create_app():
                 original_export_name,
                 new_export_name,
                 compare_versions,
+                version_selection_note,
             ],
         )
         add_export.change(
@@ -4357,6 +4402,7 @@ def create_app():
                 original_export_name,
                 new_export_name,
                 compare_versions,
+                version_selection_note,
             ],
         ).then(
             # Inspection can populate the review year and change which outputs
@@ -4374,6 +4420,7 @@ def create_app():
         )
         confirm_version_button.click(
             fn=confirm_version_comparison,
+            inputs=[original_export_name, new_export_name],
             outputs=[
                 compare_versions,
                 want_workbook,
@@ -4385,6 +4432,12 @@ def create_app():
             inputs=[year, want_workbook, want_dashboard, balance_export_workbook],
             outputs=[workbook_runtime_note, calculator_animation, run_button],
         )
+        for _version_role in (original_export_name, new_export_name):
+            _version_role.change(
+                fn=version_comparison_selection_update,
+                inputs=[original_export_name, new_export_name],
+                outputs=[confirm_version_button, version_selection_note],
+            )
         dismiss_version_button.click(
             fn=dismiss_version_comparison,
             outputs=[compare_versions, version_comparison_controls],
