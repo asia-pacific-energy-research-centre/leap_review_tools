@@ -749,16 +749,16 @@ body.app-is-processing #app-wait-overlay { display: flex; }
   margin: 0 !important;
 }
 #build-choice-heading > .form {
-  flex: 0 0 390px !important;
-  width: 390px !important;
-  min-width: 390px !important;
+  flex: 0 0 480px !important;
+  width: 480px !important;
+  min-width: 480px !important;
 }
 #build-choice-heading #esto-vintage {
   margin-top: 0 !important;
 }
 #esto-vintage .secondary-wrap {
   position: relative !important;
-  min-height: 3.7rem !important;
+  min-height: 2.55rem !important;
   border: 1px solid var(--line) !important;
   border-radius: 7px !important;
   background: #ffffff !important;
@@ -767,24 +767,24 @@ body.app-is-processing #app-wait-overlay { display: flex; }
 #esto-vintage .secondary-wrap::before {
   content: attr(data-display);
   position: absolute;
-  inset: 0.5rem 3rem 0.4rem 0.8rem;
+  inset: 0.55rem 2.5rem 0.4rem 0.8rem;
   overflow: hidden;
   color: var(--ink);
-  font-size: 0.88rem;
-  line-height: 1.25;
-  white-space: pre-line;
+  font-size: 0.82rem;
+  line-height: 1.2;
+  white-space: nowrap;
   pointer-events: none;
 }
 #esto-vintage input {
-  min-height: 3.7rem !important;
-  padding-right: 3rem !important;
+  min-height: 2.55rem !important;
+  padding-right: 2.5rem !important;
   color: transparent !important;
   -webkit-text-fill-color: transparent !important;
 }
 #esto-vintage .icon-wrap {
-  right: 0.75rem !important;
-  width: 1.25rem !important;
-  height: 1.25rem !important;
+  right: 0.7rem !important;
+  width: 1rem !important;
+  height: 1rem !important;
   color: var(--muted) !important;
 }
 .unit-warning {
@@ -1595,13 +1595,13 @@ APP_JS = """
       parsed.appendChild(actions);
     });
   };
-  // The native dropdown value is a one-line input. Paint its selected ESTO
-  // vintage over two lines so the preliminary label and arrow stay legible.
+  // The native dropdown value is a one-line input. Paint a compact copy so
+  // the full ESTO vintage and arrow stay legible in one row.
   const styleEstoVintage = () => {
     const input = document.querySelector('#esto-vintage input');
     const wrap = document.querySelector('#esto-vintage .secondary-wrap');
     if (!input || !wrap) return;
-    wrap.dataset.display = (input.value || '').replace(' — ', '\\n');
+    wrap.dataset.display = input.value || '';
   };
   // Upload parsing updates several controls independently. While Gradio is
   // applying those changes, use one small modal rather than exposing its
@@ -1905,8 +1905,8 @@ def _esto_vintage_choices() -> list[tuple[str, str]]:
             header = next(csv.reader(handle), [])
         years = [int(column) for column in header if str(column).isdigit()]
         base_year = max(years) if years else "unknown"
-        suffix = " — preliminary" if is_preliminary else ""
-        choices.append((f"ESTO {issue} (base year {base_year}){suffix}", issue))
+        suffix = " · prelim." if is_preliminary else ""
+        choices.append((f"ESTO {issue} · {base_year} base{suffix}", issue))
     if not choices:
         raise FileNotFoundError(
             "No maintained ESTO vintage was found in the active release."
