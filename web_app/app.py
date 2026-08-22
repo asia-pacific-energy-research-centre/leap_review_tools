@@ -666,29 +666,65 @@ body, gradio-app {
 #version-comparison-controls {
   position: fixed !important;
   inset: 0 !important;
-  z-index: 1000 !important;
+  z-index: 1100 !important;
   padding: 1.25rem !important;
-  background: rgba(25, 45, 70, 0.5) !important;
+  background: rgba(35, 30, 24, 0.62) !important;
 }
-#version-comparison-controls > .form {
+#version-comparison-dialog {
   width: min(620px, 100%) !important;
   margin: 12vh auto 0 !important;
   padding: 1.4rem !important;
-  border: 1px solid var(--line) !important;
+  border: 1px solid #e9c9ae !important;
   border-top: 4px solid var(--orange) !important;
   border-radius: 8px !important;
-  background: #ffffff !important;
-  box-shadow: 0 20px 55px rgba(20, 38, 60, 0.28) !important;
+  background: #fffdf9 !important;
+  box-shadow: 0 20px 55px rgba(31, 23, 16, 0.42) !important;
 }
-#version-comparison-controls .version-prompt-title {
+#version-comparison-dialog .version-prompt-title {
   margin: 0 0 0.4rem !important;
   color: var(--ink) !important;
   font-size: 1.1rem !important;
   font-weight: 800 !important;
 }
-#version-comparison-controls .version-prompt-copy {
+#version-comparison-dialog .version-prompt-copy {
   margin: 0 0 1rem !important;
-  color: var(--muted) !important;
+  color: #5f6470 !important;
+}
+#version-use-first button {
+  border-color: #d9a472 !important;
+  background: #fff4e9 !important;
+  color: #793b19 !important;
+}
+#version-compare button {
+  background: var(--orange) !important;
+  color: #ffffff !important;
+}
+#app-wait-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  background: rgba(35, 30, 24, 0.62);
+}
+body.app-is-processing #app-wait-overlay { display: flex; }
+#app-wait-overlay .wait-card {
+  width: min(300px, 100%);
+  padding: 1.2rem 1.4rem;
+  border: 1px solid #e9c9ae;
+  border-top: 4px solid var(--orange);
+  border-radius: 8px;
+  background: #fffdf9;
+  color: var(--ink);
+  text-align: center;
+  box-shadow: 0 20px 55px rgba(31, 23, 16, 0.42);
+}
+#app-wait-overlay strong { display: block; font-size: 1.05rem; }
+#app-wait-overlay span { display: block; margin-top: 0.3rem; color: #5f6470; font-size: 0.88rem; }
+.app-is-processing #upload-card .pending,
+.app-is-processing #upload-card .generating { visibility: hidden !important; }
 }
 .version-selection-error {
   display: block;
@@ -706,12 +742,43 @@ body, gradio-app {
   margin: 0 !important;
 }
 #build-choice-heading > .form {
-  flex: 0 0 285px !important;
-  width: 285px !important;
-  min-width: 285px !important;
+  flex: 0 0 330px !important;
+  width: 330px !important;
+  min-width: 330px !important;
 }
 #build-choice-heading #esto-vintage {
   margin-top: 0 !important;
+}
+#esto-vintage .secondary-wrap {
+  position: relative !important;
+  min-height: 4.15rem !important;
+  border: 2px solid var(--orange) !important;
+  border-radius: 7px !important;
+  background: #fff7ef !important;
+  box-shadow: 0 0 0 3px rgba(232, 93, 36, 0.1) !important;
+}
+#esto-vintage .secondary-wrap::before {
+  content: attr(data-display);
+  position: absolute;
+  inset: 0.55rem 3rem 0.45rem 0.8rem;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 0.98rem;
+  line-height: 1.25;
+  white-space: pre-line;
+  pointer-events: none;
+}
+#esto-vintage input {
+  min-height: 4.15rem !important;
+  padding-right: 3rem !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+}
+#esto-vintage .icon-wrap {
+  right: 0.75rem !important;
+  width: 1.25rem !important;
+  height: 1.25rem !important;
+  color: var(--orange) !important;
 }
 .unit-warning {
   margin: 0.45rem 0 0;
@@ -1521,8 +1588,43 @@ APP_JS = """
       parsed.appendChild(actions);
     });
   };
+  // The native dropdown value is a one-line input. Paint its selected ESTO
+  // vintage over two lines so the preliminary label and arrow stay legible.
+  const styleEstoVintage = () => {
+    const input = document.querySelector('#esto-vintage input');
+    const wrap = document.querySelector('#esto-vintage .secondary-wrap');
+    if (!input || !wrap) return;
+    wrap.dataset.display = (input.value || '').replace(' — ', '\\n');
+  };
+  // Upload parsing updates several controls independently. While Gradio is
+  // applying those changes, use one small modal rather than exposing its
+  // per-control "processing" states or allowing another click into the form.
+  const installWaitOverlay = () => {
+    if (!document.querySelector('#app-wait-overlay')) {
+      const overlay = document.createElement('div');
+      overlay.id = 'app-wait-overlay';
+      overlay.setAttribute('role', 'status');
+      overlay.setAttribute('aria-live', 'polite');
+      overlay.innerHTML = '<div class="wait-card"><strong>Please wait</strong><span>Updating your exports</span></div>';
+      document.body.appendChild(overlay);
+    }
+    const update = () => {
+      const processing = document.querySelector(
+        '#upload-card .pending, #upload-card .generating'
+      );
+      document.body.classList.toggle('app-is-processing', !!processing);
+    };
+    update();
+    new MutationObserver(update).observe(document.body, {
+      attributes: true,
+      attributeFilter: ['class'],
+      childList: true,
+      subtree: true,
+    });
+  };
   const install = () => {
     relabelUpload();
+    styleEstoVintage();
     placeGuideLaunch();
     placeCancelRun();
     addSingleFileRemove();
@@ -1660,7 +1762,8 @@ APP_JS = """
   installWakeRefresh();
   installStopwatch();
   installWallpaperSwitch();
-  window.setTimeout(() => { install(); syncOutputCards(); }, 150);
+  installWaitOverlay();
+  window.setTimeout(() => { install(); styleEstoVintage(); syncOutputCards(); }, 150);
   new MutationObserver(install).observe(document.body, { childList: true, subtree: true });
 }
 """
@@ -4116,28 +4219,29 @@ def create_app():
             with gr.Column(
                 visible=False, elem_id="version-comparison-controls"
             ) as version_comparison_controls:
-                gr.HTML(
-                    "<p class='version-prompt-title'>Two matching exports found</p>"
-                    "<p class='version-prompt-copy'>They have the same economy, "
-                    "scenario and years. Are these two versions of the same "
-                    "export? If so, label them below to compare them in one "
-                    "dashboard.</p>"
-                )
-                with gr.Row():
-                    original_export_name = gr.Dropdown(
-                        label="Original version (filename)"
+                with gr.Column(elem_id="version-comparison-dialog"):
+                    gr.HTML(
+                        "<p class='version-prompt-title'>Compare these exports?</p>"
+                        "<p class='version-prompt-copy'>They have the same economy, "
+                        "scenario and years.</p>"
                     )
-                    new_export_name = gr.Dropdown(label="New version (filename)")
-                with gr.Row():
-                    dismiss_version_button = gr.Button(
-                        "No — use the first export only"
+                    with gr.Row():
+                        original_export_name = gr.Dropdown(
+                            label="Original version (filename)"
+                        )
+                        new_export_name = gr.Dropdown(label="New version (filename)")
+                    version_selection_note = gr.HTML(
+                        value="", elem_id="version-selection-note"
                     )
-                    confirm_version_button = gr.Button(
-                        "Compare these versions", variant="primary"
-                    )
-                version_selection_note = gr.HTML(
-                    value="", elem_id="version-selection-note"
-                )
+                    with gr.Row():
+                        dismiss_version_button = gr.Button(
+                            "Use the first export only", elem_id="version-use-first"
+                        )
+                        confirm_version_button = gr.Button(
+                            "Compare versions",
+                            variant="primary",
+                            elem_id="version-compare",
+                        )
             compare_versions = gr.State(False)
             with gr.Row(elem_id="export-actions"):
                 clear_export_button = gr.Button(
