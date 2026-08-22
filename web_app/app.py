@@ -749,14 +749,16 @@ body.app-is-processing #app-wait-overlay { display: flex; }
   margin: 0 !important;
 }
 #build-choice-heading > .form {
-  flex: 0 0 720px !important;
-  width: 720px !important;
-  min-width: 720px !important;
+  flex: 0 0 var(--esto-vintage-width, 400px) !important;
+  width: var(--esto-vintage-width, 400px) !important;
+  min-width: 0 !important;
+  margin-left: auto !important;
   padding: 0 !important;
 }
 #build-choice-heading #esto-vintage {
   flex: 1 1 auto !important;
   width: 100% !important;
+  min-width: 0 !important;
   height: 2.35rem !important;
   min-height: 2.35rem !important;
   margin-top: 0 !important;
@@ -1614,6 +1616,32 @@ APP_JS = """
     const wrap = document.querySelector('#esto-vintage .secondary-wrap');
     if (!input || !wrap) return;
     wrap.dataset.display = input.value || '';
+    if (input.dataset.vintageBound !== '1') {
+      input.dataset.vintageBound = '1';
+      input.addEventListener('change', styleEstoVintage);
+    }
+  };
+  // The input itself is deliberately compact. Measure all known labels once,
+  // then make the control exactly wide enough for the longest one and pin it
+  // to the right of the build heading.
+  const sizeEstoVintage = () => {
+    const label = document.querySelector('.choose-label span[data-vintage-labels]');
+    const input = document.querySelector('#esto-vintage input');
+    const form = document.querySelector('#build-choice-heading > .form');
+    if (!label || !input || !form) return;
+    let labels = [];
+    try { labels = JSON.parse(label.dataset.vintageLabels || '[]'); } catch (e) {}
+    if (!labels.length) return;
+    const probe = document.createElement('span');
+    probe.style.cssText = 'position:fixed;visibility:hidden;white-space:nowrap;font:inherit;font-size:0.8rem;';
+    probe.style.fontFamily = getComputedStyle(input).fontFamily;
+    document.body.appendChild(probe);
+    const widest = Math.max(...labels.map((value) => {
+      probe.textContent = value;
+      return probe.getBoundingClientRect().width;
+    }));
+    probe.remove();
+    form.style.setProperty('--esto-vintage-width', Math.ceil(widest + 84) + 'px');
   };
   // Upload parsing updates several controls independently. While Gradio is
   // applying those changes, use one small modal rather than exposing its
@@ -1782,7 +1810,7 @@ APP_JS = """
   installStopwatch();
   installWallpaperSwitch();
   installWaitOverlay();
-  window.setTimeout(() => { install(); styleEstoVintage(); syncOutputCards(); }, 150);
+  window.setTimeout(() => { install(); styleEstoVintage(); sizeEstoVintage(); syncOutputCards(); }, 150);
   new MutationObserver(install).observe(document.body, { childList: true, subtree: true });
 }
 """
@@ -4274,13 +4302,17 @@ def create_app():
                     elem_id="add-export",
                 )
             esto_vintage_options = _esto_vintage_choices()
+            esto_vintage_labels = json.dumps(
+                [label for label, _value in esto_vintage_options]
+            )
             with gr.Row(elem_id="build-choice-heading"):
                 with gr.Column(
                     scale=1, min_width=0, elem_id="build-choice-title"
                 ):
                     gr.HTML(
                         "<p class='choose-label'>What should this run build? "
-                        "<span>ESTO vintage:</span></p>"
+                        f"<span data-vintage-labels='{html.escape(esto_vintage_labels, quote=True)}'>"
+                        "ESTO vintage:</span></p>"
                     )
                 esto_vintage = gr.Dropdown(
                     label="ESTO vintage",
