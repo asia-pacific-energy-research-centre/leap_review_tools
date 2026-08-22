@@ -231,16 +231,12 @@ def test_the_notice_is_not_stacked_by_a_second_run():
 
 
 def test_clearing_the_export_returns_one_value_per_wired_output():
-    """The click handler is wired to five outputs and must return five.
-
-    Returning more made Gradio raise, so the button that clears the export was
-    the one control on the page that could not be pressed.
-    """
+    """The clear callback returns one value for every connected control."""
     from web_app.app import clear_uploaded_export
 
     values = clear_uploaded_export()
 
-    assert len(values) == 5
+    assert len(values) == 10
     # The file field is emptied and the merged export strip disappears until
     # another file is selected.
     assert values[0] is None

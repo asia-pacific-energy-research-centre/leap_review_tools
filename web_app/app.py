@@ -695,8 +695,8 @@ body, gradio-app {
   margin: 0 0 1rem !important;
   color: #5f6470 !important;
 }
-#version-use-first,
-#version-use-first button {
+#version-clear-exports,
+#version-clear-exports button {
   border-color: #d9a472 !important;
   background: #ffffff !important;
   color: #793b19 !important;
@@ -3097,13 +3097,6 @@ def confirm_version_comparison(
     )
 
 
-def dismiss_version_comparison() -> tuple[bool, object]:
-    """Use the regular duplicate-export path after declining comparison."""
-    import gradio as gr
-
-    return False, gr.Column(visible=False)
-
-
 def _uploads_table(
     uploads: list[ExportUpload], superseded: dict[str, str] | None = None
 ) -> str:
@@ -4242,7 +4235,7 @@ def create_app():
                     )
                     with gr.Row():
                         dismiss_version_button = gr.Button(
-                            "Use the first export only", elem_id="version-use-first"
+                            "Clear exports", elem_id="version-clear-exports"
                         )
                         confirm_version_button = gr.Button(
                             "Compare versions",
@@ -4470,20 +4463,21 @@ def create_app():
                 inputs=[year, want_workbook, want_dashboard, balance_export_workbook],
                 outputs=[workbook_runtime_note, calculator_animation, run_button],
             )
+        clear_export_outputs = [
+            balance_export_workbook,
+            export_readout,
+            economy_override,
+            clear_export_button,
+            add_export,
+            version_comparison_controls,
+            original_export_name,
+            new_export_name,
+            compare_versions,
+            version_selection_note,
+        ]
         clear_export_button.click(
             fn=clear_uploaded_export,
-            outputs=[
-                balance_export_workbook,
-                export_readout,
-                economy_override,
-                clear_export_button,
-                add_export,
-                version_comparison_controls,
-                original_export_name,
-                new_export_name,
-                compare_versions,
-                version_selection_note,
-            ],
+            outputs=clear_export_outputs,
         )
         add_export.change(
             fn=append_uploaded_exports,
@@ -4555,8 +4549,8 @@ def create_app():
                 outputs=[confirm_version_button, version_selection_note],
             )
         dismiss_version_button.click(
-            fn=dismiss_version_comparison,
-            outputs=[compare_versions, version_comparison_controls],
+            fn=clear_uploaded_export,
+            outputs=clear_export_outputs,
         ).then(
             fn=update_runtime_notes,
             inputs=[year, want_workbook, want_dashboard, balance_export_workbook],
