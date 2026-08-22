@@ -51,14 +51,15 @@
 
 - **WEBQ-003 — Compare two uploaded versions of one LEAP export in the
   dashboard.** When a user uploads two Energy Balance exports with identical
-  economy, scenario and year coverage, offer an opt-in version-comparison
-  mode. The user explicitly labels the filenames as **Original** and **New**.
+  economy, scenario and year coverage, immediately ask in a popup whether
+  they are versions. The user explicitly labels the filenames as **Original**
+  and **New**.
   Render each export through the normal mapping chain, preserve the normal
   dashboard output, replace the single LEAP scenario total with visible
   `LEAP {scenario} Total original` and `LEAP {scenario} Total new` traces, and
   add green/yellow/red card highlights from absolute percentage differences.
-  The user chooses the green and yellow percentage tolerances; red is above
-  the yellow tolerance. Reject mismatched economy/scenario/year coverage,
+  Use the maintained 0.1% green and 5% yellow tolerances; red is above the
+  yellow tolerance. Reject mismatched economy/scenario/year coverage,
   duplicate role selections, unsupported chart traces, and any attempt to use
   this mode for a review workbook. Never add dashboard-owned mapping logic or
   retain uploaded results beyond the existing run/archive policy. Complete

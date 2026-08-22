@@ -8,6 +8,7 @@ orchestration. It does not reimplement diagnostics or workbook construction.
 from __future__ import annotations
 
 import base64
+import csv
 import gzip
 import html
 import json
@@ -68,6 +69,8 @@ DASHBOARD_SERVE_ROOT = Path(tempfile.gettempdir()) / "leap_balance_review_dashbo
 RUNTIME_ROOT = Path(os.getenv("LEAP_RUNTIME_ROOT", str(REPO_ROOT / "runtime")))
 SOURCE_PARENT = Path(os.getenv("LEAP_SOURCE_PARENT", str(REPO_ROOT.parent)))
 TOKYO_TIMEZONE = timezone(timedelta(hours=9), name="JST")
+VERSION_COMPARISON_GREEN_PERCENT = 0.1
+VERSION_COMPARISON_YELLOW_PERCENT = 5.0
 
 
 def _as_tokyo_time(value: datetime) -> datetime:
@@ -660,6 +663,42 @@ body, gradio-app {
 .upload-row.is-dupe strong { color: var(--muted); font-weight: 650; }
 .upload-duplicate { color: var(--muted); font-style: italic; }
 .readout-repeat { color: #8a6321; font-weight: 600; }
+#version-comparison-controls {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 1000 !important;
+  padding: 1.25rem !important;
+  background: rgba(25, 45, 70, 0.5) !important;
+}
+#version-comparison-controls > .form {
+  width: min(620px, 100%) !important;
+  margin: 12vh auto 0 !important;
+  padding: 1.4rem !important;
+  border: 1px solid var(--line) !important;
+  border-top: 4px solid var(--orange) !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  box-shadow: 0 20px 55px rgba(20, 38, 60, 0.28) !important;
+}
+#version-comparison-controls .version-prompt-title {
+  margin: 0 0 0.4rem !important;
+  color: var(--ink) !important;
+  font-size: 1.1rem !important;
+  font-weight: 800 !important;
+}
+#version-comparison-controls .version-prompt-copy {
+  margin: 0 0 1rem !important;
+  color: var(--muted) !important;
+}
+#build-choice-heading { align-items: center !important; gap: 0.45rem !important; }
+#build-choice-heading #build-choice-title { flex: 1 1 auto !important; margin-right: 1.25rem; }
+#build-choice-heading #build-choice-vintage-label { flex: 0 0 auto !important; }
+#build-choice-heading #esto-vintage,
+#build-choice-heading #esto-vintage > div {
+  flex: 0 0 285px !important;
+  width: 285px !important;
+  margin-top: 0 !important;
+}
 .unit-warning {
   margin: 0.45rem 0 0;
   padding: 0.45rem 0.6rem;
@@ -1723,6 +1762,71 @@ def _repository_roots() -> dict[str, Path]:
     )}
 
 
+_ESTO_VINTAGE_PATTERN = re.compile(
+    r"^00APEC_(\d{4})_low_with_subtotals(_PRELIMINARY)?\.csv$"
+)
+
+
+def _esto_vintage_choices() -> list[tuple[str, str]]:
+    """Return maintained ESTO releases available to this local app."""
+    choices: list[tuple[str, str]] = []
+    for path in sorted(
+        (INITIALISATION_ROOT / "data").glob("00APEC_*_low_with_subtotals*.csv")
+    ):
+        match = _ESTO_VINTAGE_PATTERN.match(path.name)
+        if not match:
+            continue
+        issue, is_preliminary = match.group(1), bool(match.group(2))
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            header = next(csv.reader(handle), [])
+        years = [int(column) for column in header if str(column).isdigit()]
+        base_year = max(years) if years else "unknown"
+        suffix = " — preliminary" if is_preliminary else ""
+        choices.append((f"ESTO {issue} (base year {base_year}){suffix}", issue))
+    if not choices:
+        raise FileNotFoundError(
+            "No maintained ESTO vintage was found in the active release."
+        )
+    return choices
+
+
+def _esto_table_for_vintage(vintage: object) -> Path:
+    """Resolve the selected maintained ESTO table."""
+    issue = str(vintage or "").strip()
+    for suffix in ("", "_PRELIMINARY"):
+        candidate = (
+            INITIALISATION_ROOT
+            / "data"
+            / f"00APEC_{issue}_low_with_subtotals{suffix}.csv"
+        )
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError(f"ESTO vintage {issue!r} is not available in this release.")
+
+
+def _esto_base_year(path: Path) -> int:
+    """Read the final ESTO history year without loading the whole table."""
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        header = next(csv.reader(handle), [])
+    years = [int(column) for column in header if str(column).isdigit()]
+    if not years:
+        raise ValueError(f"The selected ESTO file has no year columns: {path.name}")
+    return max(years)
+
+
+def adjust_review_year_for_vintage(vintage: object, year: object) -> str:
+    """Keep workbook years compatible with the selected ESTO base year."""
+    text = str(year or "").strip()
+    if not text:
+        return text
+    requested = _requested_years(text)
+    if not requested:
+        return text
+    base_year = _esto_base_year(_esto_table_for_vintage(vintage))
+    adjusted = sorted({max(value, base_year) for value in requested})
+    return ", ".join(str(value) for value in adjusted)
+
+
 def _build_context(run_root: Path):
     """Build the same live-repository context used by developer mode."""
     settings = DeveloperSettings(
@@ -2283,7 +2387,7 @@ def append_uploaded_exports(current: object, added: object) -> tuple[object, obj
 
 
 def clear_uploaded_export() -> tuple[
-    object, str, object, object, object, object, object, object
+    object, str, object, object, object, object, object, object, bool
 ]:
     """Drop the loaded export so a different one can be added.
 
@@ -2308,6 +2412,7 @@ def clear_uploaded_export() -> tuple[
         gr.Column(visible=False),
         gr.Dropdown(value=None, choices=[]),
         gr.Dropdown(value=None, choices=[]),
+        False,
     )
 
 
@@ -2372,11 +2477,10 @@ def start_run(
     balance_export_workbook: object,
     browser_archives: object,
     upload_is_live: object = True,
+    esto_vintage_choice: object = None,
     compare_versions: object = False,
     original_export_name: object = None,
     new_export_name: object = None,
-    green_percent: object = 0.1,
-    yellow_percent: object = 5.0,
 ) -> tuple[str, object]:
     """Begin a build in the background and return its job id.
 
@@ -2422,11 +2526,10 @@ def start_run(
                 browser_archives,
                 progress=report,
                 cancellation_check=lambda: _job_cancel_requested(job_id),
+                esto_vintage_choice=esto_vintage_choice,
                 compare_versions=compare_versions,
                 original_export_name=original_export_name,
                 new_export_name=new_export_name,
-                green_percent=green_percent,
-                yellow_percent=yellow_percent,
             )
             _raise_if_cancelled(lambda: _job_cancel_requested(job_id))
             _set_job(
@@ -2807,8 +2910,8 @@ def selected_version_uploads(
 
 def version_comparison_control_updates(
     balance_export_workbook: object,
-) -> tuple[object, object, object]:
-    """Offer roles only when two exports describe the same LEAP run."""
+) -> tuple[object, object, object, bool]:
+    """Open the version prompt only for one matching pair of exports."""
     import gradio as gr
 
     uploads = [upload for upload in read_uploads(balance_export_workbook) if upload.ok]
@@ -2819,22 +2922,33 @@ def version_comparison_control_updates(
         )
     candidates = [group for group in groups.values() if len(group) >= 2]
     if len(candidates) != 1:
-        return gr.Column(visible=False), gr.Dropdown(), gr.Dropdown()
+        return gr.Column(visible=False), gr.Dropdown(), gr.Dropdown(), False
     names = [upload.path.name for upload in candidates[0]]
     return (
         gr.Column(visible=True),
         gr.Dropdown(choices=names, value=names[0]),
         gr.Dropdown(choices=names, value=names[1]),
+        False,
     )
 
 
-def version_comparison_output_updates(compare_versions: object) -> tuple[object, object]:
-    """A version comparison has one dashboard output, never a workbook."""
+def confirm_version_comparison() -> tuple[bool, object, object, object]:
+    """Accept the two selected roles and switch the run to dashboard-only."""
     import gradio as gr
 
-    if bool(compare_versions):
-        return gr.Checkbox(value=False, interactive=False), gr.Checkbox(value=True)
-    return gr.Checkbox(interactive=True), gr.Checkbox()
+    return (
+        True,
+        gr.Checkbox(value=False, interactive=False),
+        gr.Checkbox(value=True),
+        gr.Column(visible=False),
+    )
+
+
+def dismiss_version_comparison() -> tuple[bool, object]:
+    """Use the regular duplicate-export path after declining comparison."""
+    import gradio as gr
+
+    return False, gr.Column(visible=False)
 
 
 def _uploads_table(
@@ -3064,11 +3178,10 @@ def build_review_from_export(
     cancellation_check: object = None,
     dashboard_min_year: float = DEFAULT_DASHBOARD_MIN_YEAR,
     dashboard_max_year: float = DEFAULT_DASHBOARD_MAX_YEAR,
+    esto_vintage_choice: object = None,
     compare_versions: object = False,
     original_export_name: object = None,
     new_export_name: object = None,
-    green_percent: object = 0.1,
-    yellow_percent: object = 5.0,
 ) -> tuple[str, str, object, str | None, str, object, object]:
     """Build the outputs a run asked for, from one LEAP export."""
     persistent_bundle: Path | None = None
@@ -3112,10 +3225,8 @@ def build_review_from_export(
             original_upload, new_upload = selected_version_uploads(
                 readable, original_export_name, new_export_name
             )
-            green_percent_value = float(green_percent)
-            yellow_percent_value = float(yellow_percent)
-            if green_percent_value < 0 or yellow_percent_value < green_percent_value:
-                raise ValueError("Yellow tolerance must be at least the green tolerance.")
+            green_percent_value = VERSION_COMPARISON_GREEN_PERCENT
+            yellow_percent_value = VERSION_COMPARISON_YELLOW_PERCENT
         else:
             original_upload = new_upload = None
             green_percent_value = yellow_percent_value = None
@@ -3186,7 +3297,15 @@ def build_review_from_export(
                 f"This export has no sheet for {', '.join(str(y) for y in missing_years)}. "
                 f"It covers {available}."
             )
-        esto_path = None
+        vintage_choices = _esto_vintage_choices()
+        selected_vintage = str(esto_vintage_choice or vintage_choices[-1][1])
+        esto_path = _esto_table_for_vintage(selected_vintage)
+        esto_base_year = _esto_base_year(esto_path)
+        if wants_workbook and requested_years:
+            requested_years = sorted(
+                {max(value, esto_base_year) for value in requested_years}
+            )
+            year_value = ", ".join(str(value) for value in requested_years)
 
         run_root = Path(tempfile.mkdtemp(prefix="leap_balance_review_web_"))
         local_esto = _copy_input(esto_path, run_root / "uploads") if esto_path else None
@@ -3461,7 +3580,8 @@ def build_review_from_export(
             "dashboard_min_year": dashboard_min_year_value,
             "dashboard_max_year": dashboard_max_year_value,
             "esto_table_used": run_outputs.get("esto_table_used"),
-            "esto_base_year": run_outputs.get("esto_base_year"),
+            "esto_base_year": run_outputs.get("esto_base_year") or esto_base_year,
+            "esto_vintage": selected_vintage,
             "diagnostics_directory": (
                 str(diagnostics_directory) if diagnostics_directory else None
             ),
@@ -3949,13 +4069,12 @@ def create_app():
             with gr.Column(
                 visible=False, elem_id="version-comparison-controls"
             ) as version_comparison_controls:
-                compare_versions = gr.Checkbox(
-                    label="Compare these two LEAP export versions",
-                    value=False,
-                    info=(
-                        "Choose which filename is the original and which is the "
-                        "new version. This creates a dashboard only."
-                    ),
+                gr.HTML(
+                    "<p class='version-prompt-title'>Two matching exports found</p>"
+                    "<p class='version-prompt-copy'>They have the same economy, "
+                    "scenario and years. Are these two versions of the same "
+                    "export? If so, label them below to compare them in one "
+                    "dashboard.</p>"
                 )
                 with gr.Row():
                     original_export_name = gr.Dropdown(
@@ -3963,17 +4082,13 @@ def create_app():
                     )
                     new_export_name = gr.Dropdown(label="New version (filename)")
                 with gr.Row():
-                    green_percent = gr.Number(
-                        label="Green tolerance (% absolute difference)",
-                        value=0.1,
-                        minimum=0,
+                    dismiss_version_button = gr.Button(
+                        "No — use the first export only"
                     )
-                    yellow_percent = gr.Number(
-                        label="Yellow tolerance (% absolute difference)",
-                        value=5.0,
-                        minimum=0,
-                        info="Red means above this tolerance.",
+                    confirm_version_button = gr.Button(
+                        "Compare these versions", variant="primary"
                     )
+            compare_versions = gr.State(False)
             with gr.Row(elem_id="export-actions"):
                 clear_export_button = gr.Button(
                     "Use a different export",
@@ -3992,9 +4107,27 @@ def create_app():
                     visible=False,
                     elem_id="add-export",
                 )
-            gr.HTML(
-                "<p class='choose-label'>What should this run build?</p>"
-            )
+            esto_vintage_options = _esto_vintage_choices()
+            with gr.Row(elem_id="build-choice-heading"):
+                gr.HTML(
+                    "<p class='choose-label'>What should this run build?</p>",
+                    elem_id="build-choice-title",
+                )
+                gr.HTML(
+                    "<span class='choose-label'>ESTO vintage:</span>",
+                    elem_id="build-choice-vintage-label",
+                )
+                esto_vintage = gr.Dropdown(
+                    label="ESTO vintage",
+                    show_label=False,
+                    choices=esto_vintage_options,
+                    value=esto_vintage_options[-1][1],
+                    allow_custom_value=False,
+                    filterable=False,
+                    elem_id="esto-vintage",
+                    scale=0,
+                    min_width=285,
+                )
             with gr.Row(elem_id="outputs-row"):
                 with gr.Column(elem_classes=["output-card"], elem_id="workbook-card"):
                     want_workbook = gr.Checkbox(
@@ -4188,6 +4321,7 @@ def create_app():
                 version_comparison_controls,
                 original_export_name,
                 new_export_name,
+                compare_versions,
             ],
         )
         add_export.change(
@@ -4212,12 +4346,17 @@ def create_app():
                 want_dashboard,
             ],
         ).then(
+            fn=adjust_review_year_for_vintage,
+            inputs=[esto_vintage, year],
+            outputs=year,
+        ).then(
             fn=version_comparison_control_updates,
             inputs=balance_export_workbook,
             outputs=[
                 version_comparison_controls,
                 original_export_name,
                 new_export_name,
+                compare_versions,
             ],
         ).then(
             # Inspection can populate the review year and change which outputs
@@ -4228,10 +4367,27 @@ def create_app():
             inputs=[year, want_workbook, want_dashboard, balance_export_workbook],
             outputs=[workbook_runtime_note, calculator_animation, run_button],
         )
-        compare_versions.change(
-            fn=version_comparison_output_updates,
-            inputs=compare_versions,
-            outputs=[want_workbook, want_dashboard],
+        esto_vintage.change(
+            fn=adjust_review_year_for_vintage,
+            inputs=[esto_vintage, year],
+            outputs=year,
+        )
+        confirm_version_button.click(
+            fn=confirm_version_comparison,
+            outputs=[
+                compare_versions,
+                want_workbook,
+                want_dashboard,
+                version_comparison_controls,
+            ],
+        ).then(
+            fn=update_runtime_notes,
+            inputs=[year, want_workbook, want_dashboard, balance_export_workbook],
+            outputs=[workbook_runtime_note, calculator_animation, run_button],
+        )
+        dismiss_version_button.click(
+            fn=dismiss_version_comparison,
+            outputs=[compare_versions, version_comparison_controls],
         ).then(
             fn=update_runtime_notes,
             inputs=[year, want_workbook, want_dashboard, balance_export_workbook],
@@ -4273,11 +4429,10 @@ def create_app():
                 balance_export_workbook,
                 browser_archives,
                 upload_is_live,
+                esto_vintage,
                 compare_versions,
                 original_export_name,
                 new_export_name,
-                green_percent,
-                yellow_percent,
             ],
             outputs=[active_job, cancel_button],
         ).then(
