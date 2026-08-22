@@ -748,6 +748,15 @@ body.app-is-processing #app-wait-overlay { display: flex; }
   min-width: 0 !important;
   margin: 0 !important;
 }
+#build-choice-title .choose-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+#build-choice-title .choose-label span {
+  margin-left: auto;
+  white-space: nowrap;
+}
 #build-choice-heading > .form {
   flex: 0 0 var(--esto-vintage-width, 400px) !important;
   width: var(--esto-vintage-width, 400px) !important;
