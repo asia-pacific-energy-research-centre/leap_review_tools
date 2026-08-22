@@ -699,12 +699,18 @@ body, gradio-app {
 }
 #build-choice-heading { align-items: center !important; gap: 0.45rem !important; }
 #build-choice-heading { flex-wrap: nowrap !important; }
-#build-choice-heading #build-choice-title { flex: 1 1 auto !important; margin-right: 1.25rem; }
-#build-choice-heading #build-choice-vintage-label { flex: 0 0 auto !important; }
-#build-choice-heading #esto-vintage,
-#build-choice-heading #esto-vintage > div {
+#build-choice-heading #build-choice-title {
+  flex: 1 1 auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+}
+#build-choice-heading > .form {
   flex: 0 0 285px !important;
   width: 285px !important;
+  min-width: 285px !important;
+}
+#build-choice-heading #esto-vintage {
   margin-top: 0 !important;
 }
 .unit-warning {
@@ -4153,14 +4159,13 @@ def create_app():
                 )
             esto_vintage_options = _esto_vintage_choices()
             with gr.Row(elem_id="build-choice-heading"):
-                gr.HTML(
-                    "<p class='choose-label'>What should this run build?</p>",
-                    elem_id="build-choice-title",
-                )
-                gr.HTML(
-                    "<span class='choose-label'>ESTO vintage:</span>",
-                    elem_id="build-choice-vintage-label",
-                )
+                with gr.Column(
+                    scale=1, min_width=0, elem_id="build-choice-title"
+                ):
+                    gr.HTML(
+                        "<p class='choose-label'>What should this run build? "
+                        "<span>ESTO vintage:</span></p>"
+                    )
                 esto_vintage = gr.Dropdown(
                     label="ESTO vintage",
                     show_label=False,
