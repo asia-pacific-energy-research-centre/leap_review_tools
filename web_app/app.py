@@ -672,8 +672,13 @@ body, gradio-app {
 }
 #version-comparison-dialog {
   width: min(620px, 100%) !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  height: auto !important;
+  flex: 0 0 auto !important;
+  align-self: flex-start !important;
   margin: 12vh auto 0 !important;
-  padding: 1.4rem !important;
+  padding: 1.15rem !important;
   border: 1px solid #e9c9ae !important;
   border-top: 4px solid var(--orange) !important;
   border-radius: 8px !important;
@@ -690,11 +695,13 @@ body, gradio-app {
   margin: 0 0 1rem !important;
   color: #5f6470 !important;
 }
+#version-use-first,
 #version-use-first button {
   border-color: #d9a472 !important;
-  background: #fff4e9 !important;
+  background: #ffffff !important;
   color: #793b19 !important;
 }
+#version-compare,
 #version-compare button {
   background: var(--orange) !important;
   color: #ffffff !important;
