@@ -749,16 +749,28 @@ body.app-is-processing #app-wait-overlay { display: flex; }
   margin: 0 !important;
 }
 #build-choice-heading > .form {
-  flex: 0 0 480px !important;
-  width: 480px !important;
-  min-width: 480px !important;
+  flex: 0 0 720px !important;
+  width: 720px !important;
+  min-width: 720px !important;
+  padding: 0 !important;
 }
 #build-choice-heading #esto-vintage {
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  height: 2.35rem !important;
+  min-height: 2.35rem !important;
   margin-top: 0 !important;
+  padding: 0 !important;
+}
+#esto-vintage .container,
+#esto-vintage .wrap,
+#esto-vintage .wrap-inner {
+  height: 100% !important;
+  min-height: 0 !important;
 }
 #esto-vintage .secondary-wrap {
   position: relative !important;
-  min-height: 2.55rem !important;
+  min-height: 2.35rem !important;
   border: 1px solid var(--line) !important;
   border-radius: 7px !important;
   background: #ffffff !important;
@@ -767,16 +779,16 @@ body.app-is-processing #app-wait-overlay { display: flex; }
 #esto-vintage .secondary-wrap::before {
   content: attr(data-display);
   position: absolute;
-  inset: 0.55rem 2.5rem 0.4rem 0.8rem;
+  inset: 0.5rem 2.5rem 0.35rem 0.8rem;
   overflow: hidden;
   color: var(--ink);
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   line-height: 1.2;
   white-space: nowrap;
   pointer-events: none;
 }
 #esto-vintage input {
-  min-height: 2.55rem !important;
+  min-height: 2.35rem !important;
   padding-right: 2.5rem !important;
   color: transparent !important;
   -webkit-text-fill-color: transparent !important;
@@ -1905,8 +1917,8 @@ def _esto_vintage_choices() -> list[tuple[str, str]]:
             header = next(csv.reader(handle), [])
         years = [int(column) for column in header if str(column).isdigit()]
         base_year = max(years) if years else "unknown"
-        suffix = " · prelim." if is_preliminary else ""
-        choices.append((f"ESTO {issue} · {base_year} base{suffix}", issue))
+        suffix = " — preliminary" if is_preliminary else ""
+        choices.append((f"ESTO {issue} (base year {base_year}){suffix}", issue))
     if not choices:
         raise FileNotFoundError(
             "No maintained ESTO vintage was found in the active release."
