@@ -7,6 +7,7 @@ from web_app.app import (
     _matching_version_pair,
     _uploads_table,
     _esto_vintage_choices,
+    _default_esto_vintage,
     adjust_review_year_for_vintage,
     confirm_version_comparison,
     selected_version_uploads,
@@ -64,4 +65,5 @@ def test_esto_vintage_picker_uses_available_maintained_releases() -> None:
     choices = _esto_vintage_choices()
 
     assert [value for _, value in choices] == ["2024", "2025", "2026"]
+    assert _default_esto_vintage(choices) == "2024"
     assert adjust_review_year_for_vintage("2025", "2022, 2030") == "2023, 2030"

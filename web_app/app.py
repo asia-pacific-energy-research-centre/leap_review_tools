@@ -1960,6 +1960,7 @@ def _repository_roots() -> dict[str, Path]:
 _ESTO_VINTAGE_PATTERN = re.compile(
     r"^00APEC_(\d{4})_low_with_subtotals(_PRELIMINARY)?\.csv$"
 )
+DEFAULT_ESTO_VINTAGE = "2024"
 
 
 def _esto_vintage_choices() -> list[tuple[str, str]]:
@@ -1997,6 +1998,16 @@ def _esto_table_for_vintage(vintage: object) -> Path:
         if candidate.is_file():
             return candidate
     raise FileNotFoundError(f"ESTO vintage {issue!r} is not available in this release.")
+
+
+def _default_esto_vintage(choices: list[tuple[str, str]]) -> str:
+    """Keep the reviewed 2024 ESTO vintage selected when it is packaged."""
+    for _, issue in choices:
+        if issue == DEFAULT_ESTO_VINTAGE:
+            return issue
+    raise FileNotFoundError(
+        f"Required default ESTO vintage {DEFAULT_ESTO_VINTAGE!r} is not available."
+    )
 
 
 def _esto_base_year(path: Path) -> int:
@@ -4389,7 +4400,7 @@ def create_app():
                     label="ESTO vintage",
                     show_label=False,
                     choices=esto_vintage_options,
-                    value=esto_vintage_options[-1][1],
+                    value=_default_esto_vintage(esto_vintage_options),
                     allow_custom_value=False,
                     filterable=False,
                     elem_id="esto-vintage",
