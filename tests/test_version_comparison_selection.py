@@ -15,6 +15,7 @@ from web_app.app import (
     adjust_review_year_for_vintage,
     confirm_version_comparison,
     selected_version_uploads,
+    synchronise_version_comparison_role,
     version_comparison_selection_update,
     version_comparison_control_updates,
 )
@@ -71,7 +72,7 @@ def test_matching_upload_selection_activates_comparison_prompt(monkeypatch) -> N
     second = ExportUpload(Path("second.xlsx"), "01_AUS", "Target", (2022, 2060))
     monkeypatch.setattr(app_module, "read_uploads", lambda uploads: [first, second])
 
-    controls, original, new, compare_versions, note = (
+    controls, original, new, compare_versions, note, confirm = (
         version_comparison_control_updates(["ignored"])
     )
 
@@ -79,6 +80,29 @@ def test_matching_upload_selection_activates_comparison_prompt(monkeypatch) -> N
     assert original.value == "first.xlsx"
     assert new.value == "second.xlsx"
     assert compare_versions is False
+    assert note == ""
+    assert confirm.interactive is True
+
+
+def test_changing_either_version_role_moves_the_other_to_the_remaining_file(
+    monkeypatch,
+) -> None:
+    first = ExportUpload(Path("first.xlsx"), "01_AUS", "Target", (2022, 2060))
+    second = ExportUpload(Path("second.xlsx"), "01_AUS", "Target", (2022, 2060))
+    monkeypatch.setattr(app_module, "read_uploads", lambda uploads: [first, second])
+
+    new_role, confirm, note = synchronise_version_comparison_role(
+        "second.xlsx", ["ignored"]
+    )
+    assert new_role.value == "first.xlsx"
+    assert confirm.interactive is True
+    assert note == ""
+
+    original_role, confirm, note = synchronise_version_comparison_role(
+        "first.xlsx", ["ignored"]
+    )
+    assert original_role.value == "second.xlsx"
+    assert confirm.interactive is True
     assert note == ""
 
 

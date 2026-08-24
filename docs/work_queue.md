@@ -2,6 +2,9 @@
 
 ## Completed
 
+- 2026-08-24: Keep the two Version 1 / Version 2 selectors complementary:
+  initialise the modal with an enabled **Compare versions** action, and when
+  either role changes, move the other role to the remaining uploaded file.
 - 2026-08-24: Complete WEBQ-003 Version 1 / Version 2 dashboard comparison:
   isolate trace-only/full output roots, align trace-only with the maintained
   default comparison scope and full chart set, add explicit paired legends and

@@ -3165,13 +3165,20 @@ def _matching_version_pair(uploads: list[ExportUpload]) -> list[ExportUpload]:
 
 def version_comparison_control_updates(
     balance_export_workbook: object,
-) -> tuple[object, object, object, bool, str]:
+) -> tuple[object, object, object, bool, str, object]:
     """Open the version prompt only for one matching pair of exports."""
     import gradio as gr
 
     pair = _matching_version_pair(read_uploads(balance_export_workbook))
     if not pair:
-        return gr.Column(visible=False), gr.Dropdown(), gr.Dropdown(), False, ""
+        return (
+            gr.Column(visible=False),
+            gr.Dropdown(),
+            gr.Dropdown(),
+            False,
+            "",
+            gr.Button(interactive=False),
+        )
     names = [upload.path.name for upload in pair]
     return (
         gr.Column(visible=True),
@@ -3179,6 +3186,7 @@ def version_comparison_control_updates(
         gr.Dropdown(choices=names, value=names[1]),
         False,
         "",
+        gr.Button(interactive=True),
     )
 
 
@@ -3194,6 +3202,29 @@ def version_comparison_selection_update(
             "<span class='version-selection-error'>Choose different files.</span>",
         )
     return gr.Button(interactive=True), ""
+
+
+def synchronise_version_comparison_role(
+    changed_name: object, balance_export_workbook: object
+) -> tuple[object, object, str]:
+    """Keep the other role on the remaining file in a two-file comparison."""
+    import gradio as gr
+
+    pair = _matching_version_pair(read_uploads(balance_export_workbook))
+    names = [upload.path.name for upload in pair]
+    selected = str(changed_name or "")
+    if len(names) != 2 or selected not in names:
+        return (
+            gr.Dropdown(choices=names),
+            gr.Button(interactive=False),
+            "<span class='version-selection-error'>Choose a version file.</span>",
+        )
+    remaining = names[1] if selected == names[0] else names[0]
+    return (
+        gr.Dropdown(choices=names, value=remaining),
+        gr.Button(interactive=True),
+        "",
+    )
 
 
 def confirm_version_comparison(
@@ -4762,6 +4793,7 @@ def create_app():
                 new_export_name,
                 compare_versions,
                 version_selection_note,
+                confirm_version_button,
             ],
         ).then(
             # Inspection can populate the review year and change which outputs
@@ -4822,12 +4854,24 @@ def create_app():
                 run_button,
             ],
         )
-        for _version_role in (original_export_name, new_export_name):
-            _version_role.change(
-                fn=version_comparison_selection_update,
-                inputs=[original_export_name, new_export_name],
-                outputs=[confirm_version_button, version_selection_note],
-            )
+        original_export_name.change(
+            fn=synchronise_version_comparison_role,
+            inputs=[original_export_name, balance_export_workbook],
+            outputs=[
+                new_export_name,
+                confirm_version_button,
+                version_selection_note,
+            ],
+        )
+        new_export_name.change(
+            fn=synchronise_version_comparison_role,
+            inputs=[new_export_name, balance_export_workbook],
+            outputs=[
+                original_export_name,
+                confirm_version_button,
+                version_selection_note,
+            ],
+        )
         dismiss_version_button.click(
             fn=clear_uploaded_export,
             outputs=clear_export_outputs,
