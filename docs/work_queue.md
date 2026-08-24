@@ -2,6 +2,8 @@
 
 ## Completed
 
+- 2026-08-24: Disable green/yellow/red Version 1 / Version 2 chart borders
+  while retaining the paired original/new comparison traces.
 - 2026-08-24: Keep the two Version 1 / Version 2 selectors complementary:
   initialise the modal with an enabled **Compare versions** action, and when
   either role changes, move the other role to the remaining uploaded file.

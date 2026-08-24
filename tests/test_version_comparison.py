@@ -22,11 +22,15 @@ def _dashboard(root: Path, value: float) -> None:
     )
 
 
-def test_version_comparison_adds_paired_lines_and_colour(tmp_path: Path) -> None:
+def test_version_comparison_adds_paired_lines_without_coloured_borders(
+    tmp_path: Path,
+) -> None:
     original, new = tmp_path / "original", tmp_path / "new"
     _dashboard(original, 100)
     _dashboard(new, 103)
     original_bundle_before = (original / "chart_bundles" / "supply.json").read_bytes()
+    dashboard_page = new / "dashboards" / "supply.html"
+    dashboard_page_before = dashboard_page.read_bytes()
 
     counts = apply_version_comparison(
         original, new, scenario="Target", green_percent=1, yellow_percent=5
@@ -35,7 +39,7 @@ def test_version_comparison_adds_paired_lines_and_colour(tmp_path: Path) -> None
     figure = json.loads(
         (new / "chart_bundles" / "supply.json").read_text()
     )["charts"]["chart-a"]
-    assert counts == {"green": 0, "yellow": 1, "red": 0}
+    assert counts == {"green": 0, "yellow": 0, "red": 0}
     assert [trace["name"] for trace in figure["data"]] == [
         "LEAP Target Total — Version 1 (original)",
         "LEAP Target Total — Version 2 (new)",
@@ -49,7 +53,10 @@ def test_version_comparison_adds_paired_lines_and_colour(tmp_path: Path) -> None
         [100, 103],
     ]
     assert (original / "chart_bundles" / "supply.json").read_bytes() == original_bundle_before
-    assert 'version-yellow' in (new / "dashboards" / "supply.html").read_text()
+    assert dashboard_page.read_bytes() == dashboard_page_before
+    assert "version-green" not in dashboard_page.read_text()
+    assert "version-yellow" not in dashboard_page.read_text()
+    assert "version-red" not in dashboard_page.read_text()
 
 
 def test_version_comparison_refuses_a_silent_no_op(tmp_path: Path) -> None:
