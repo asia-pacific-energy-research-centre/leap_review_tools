@@ -53,7 +53,7 @@ def apply_version_comparison(
     green_percent: float,
     yellow_percent: float,
 ) -> dict[str, int]:
-    """Add Original/New total lines and colour each comparable chart card.
+    """Add Version 1/Version 2 total lines and colour each comparable chart card.
 
     Percent differences use absolute values and the original value as the
     denominator. A zero original with a non-zero new value is red.
@@ -97,11 +97,11 @@ def apply_version_comparison(
             )
             original_trace = copy.deepcopy(old_trace)
             original_trace.update(
-                name=f"LEAP {scenario} Total original",
+                name=f"LEAP {scenario} Total — Version 1 (original)",
                 line={"color": "#6b7280", "dash": "dot", "width": 3},
             )
             new_trace.update(
-                name=f"LEAP {scenario} Total new",
+                name=f"LEAP {scenario} Total — Version 2 (new)",
                 line={"color": "#1d4ed8", "dash": "solid", "width": 3},
             )
             new_figure["data"].insert(new_index, original_trace)
@@ -112,6 +112,11 @@ def apply_version_comparison(
             changed = True
         if changed:
             _write_bundle(new_bundle, new_charts)
+    if not statuses:
+        raise ValueError(
+            "No comparable Version 1 / Version 2 total traces were found in the "
+            "rendered chart bundles."
+        )
     css = (
         "<style>.chart-card.version-green{border:4px solid #1b7f3a}"
         ".chart-card.version-yellow{border:4px solid #d9a400}"

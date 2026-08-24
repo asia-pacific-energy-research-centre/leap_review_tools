@@ -38,6 +38,30 @@ def test_runtime_profile_does_not_mix_process_groups() -> None:
     assert profile["averages_seconds"]["full_run"] is None
 
 
+def test_version_comparison_runtime_composes_trace_only_and_full_timings() -> None:
+    profile = record_runtime_sample(
+        empty_runtime_profile(),
+        process_group="dashboard_trace_only",
+        elapsed_seconds=120,
+    )
+    profile = record_runtime_sample(
+        profile,
+        process_group="dashboard",
+        elapsed_seconds=480,
+    )
+
+    note = format_runtime_note(
+        profile,
+        process_group="dashboard",
+        version_comparison=True,
+    )
+
+    assert "Version 1 / Version 2 comparison" in note
+    assert "10 min 00 sec" in note
+    assert "trace-only Version 1 plus the full Version 2 dashboard" in note
+    assert "extra economy adds about 10 min 00 sec" in note
+
+
 def test_runtime_note_identifies_hugging_face_source(monkeypatch) -> None:
     """A sample taken on the Space is labelled as a hosted average."""
     monkeypatch.setenv("SPACE_ID", "owner/space")

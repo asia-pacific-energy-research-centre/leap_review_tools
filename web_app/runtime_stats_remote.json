@@ -18,6 +18,10 @@
       1220.9,
       1029.7
     ],
+    "dashboard_trace_only": [
+      554.0,
+      722.5
+    ],
     "full_run": [
       425.3,
       1406.7
@@ -37,6 +41,10 @@
       2,
       null
     ],
+    "dashboard_trace_only": [
+      null,
+      null
+    ],
     "full_run": [
       1,
       2
@@ -45,6 +53,7 @@
   "averages_seconds": {
     "workbook": 201.8,
     "dashboard": 696.6,
+    "dashboard_trace_only": 638.2,
     "full_run": 916.0
   }
 }

@@ -21,7 +21,7 @@ from typing import Any
 # it without going so far back that it describes a different machine.
 SAMPLE_LIMIT = 25
 PROFILE_SCHEMA_VERSION = 2
-PROCESS_GROUPS = ("workbook", "dashboard", "full_run")
+PROCESS_GROUPS = ("workbook", "dashboard", "dashboard_trace_only", "full_run")
 # A workbook is built per requested year, so its cost scales with how many
 # were asked for. The dashboard renders its own fixed year range regardless.
 YEAR_SCALED_GROUPS = ("workbook", "full_run")
@@ -246,6 +246,7 @@ def format_runtime_note(
     process_group: str,
     years: int = 1,
     economies: int = 1,
+    version_comparison: bool = False,
 ) -> str:
     """Return concise UI copy for a process card.
 
@@ -255,6 +256,39 @@ def format_runtime_note(
     estimate, per_year = estimate_runtime(
         profile, process_group=process_group, years=years
     )
+    if version_comparison and process_group == "dashboard":
+        trace_estimate, _ = estimate_runtime(
+            profile, process_group="dashboard_trace_only", years=years
+        )
+        estimate = (
+            trace_estimate + estimate
+            if trace_estimate is not None and estimate is not None
+            else None
+        )
+        if estimate is None:
+            return (
+                "Version 1 / Version 2 comparison timing will appear after the "
+                "first measured trace-only Version 1 and full Version 2 run."
+            )
+        lead = (
+            "Average on Hugging Face"
+            if str(profile.get("source", "")) == "huggingface_space"
+            else "Typical Version 1 / Version 2 comparison"
+        )
+        note = (
+            f"{lead}: about {format_duration(estimate)} for trace-only Version 1 "
+            "plus the full Version 2 dashboard."
+        )
+        if economies > 1:
+            note = (
+                f"{lead}: about {format_duration(estimate * economies)} for "
+                f"{economies} economy comparisons."
+            )
+        note += (
+            " A comparison for each extra economy adds about "
+            f"{format_duration(estimate)}."
+        )
+        return note
     if estimate is None:
         return "HF average will appear after the first hosted benchmark."
     lead = (

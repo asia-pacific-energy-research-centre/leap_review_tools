@@ -2486,14 +2486,23 @@ def _run_status_line(
 
 
 def _card_runtime_note_html(
-    profile: dict[str, object], group: str, *, years: int, economies: int = 1
+    profile: dict[str, object],
+    group: str,
+    *,
+    years: int,
+    economies: int = 1,
+    version_comparison: bool = False,
 ) -> str:
     """Return one process card's runtime note."""
     return (
         "<p class='card-note runtime-note'>"
         + html.escape(
             format_runtime_note(
-                profile, process_group=group, years=years, economies=economies
+                profile,
+                process_group=group,
+                years=years,
+                economies=economies,
+                version_comparison=version_comparison,
             )
         )
         + "</p>"
@@ -2501,7 +2510,12 @@ def _card_runtime_note_html(
 
 
 def _calculator_html(
-    profile: dict[str, object], *, want_dashboard: bool, years: int, economies: int = 1
+    profile: dict[str, object],
+    *,
+    want_dashboard: bool,
+    years: int,
+    economies: int = 1,
+    version_comparison: bool = False,
 ) -> str:
     """Return the working animation, carrying the elapsed clock with it.
 
@@ -2510,8 +2524,23 @@ def _calculator_html(
     when it is useful and takes no space the rest of the time. It ticks in the
     browser: the build itself only yields every ten seconds.
     """
-    group = "full_run" if want_dashboard else "workbook"
+    group = (
+        "dashboard"
+        if version_comparison and want_dashboard
+        else "full_run"
+        if want_dashboard
+        else "workbook"
+    )
     estimate, _ = estimate_runtime(profile, process_group=group, years=years)
+    if version_comparison and want_dashboard:
+        trace_estimate, _ = estimate_runtime(
+            profile, process_group="dashboard_trace_only", years=years
+        )
+        estimate = (
+            estimate + trace_estimate
+            if estimate is not None and trace_estimate is not None
+            else None
+        )
     if estimate and want_dashboard and economies > 1:
         dashboard_only, _ = estimate_runtime(profile, process_group="dashboard")
         estimate += (dashboard_only or 0) * (economies - 1)
@@ -2543,7 +2572,8 @@ def update_runtime_notes(
     want_workbook: object,
     want_dashboard: object,
     balance_export_workbook: object = None,
-) -> tuple[str, str, object]:
+    compare_versions: object = False,
+) -> tuple[str, str, str, object]:
     """Re-quote the estimates for the years typed and the economies uploaded."""
     import gradio as gr
 
@@ -2556,11 +2586,19 @@ def update_runtime_notes(
     )
     return (
         _card_runtime_note_html(profile, "workbook", years=years),
+        _card_runtime_note_html(
+            profile,
+            "dashboard",
+            years=years,
+            economies=economies,
+            version_comparison=bool(compare_versions),
+        ),
         _calculator_html(
             profile,
             want_dashboard=bool(want_dashboard) or not bool(want_workbook),
             years=years,
             economies=economies,
+            version_comparison=bool(compare_versions),
         ),
         gr.Button("Run", interactive=ready_to_run),
     )
@@ -3251,7 +3289,9 @@ def version_comparison_readout(
         label="Read from your exports",
         body=(
             _uploads_table(uploads, version_roles=roles)
-            + "<p>Version 1 and Version 2 will be compared in one dashboard.</p>"
+            + "<p>This is a Version 1 / Version 2 comparison: Version 1 is "
+            "rendered as lightweight comparison traces, then overlaid on the "
+            "full Version 2 dashboard.</p>"
         ),
         multiple=True,
     )
@@ -3434,6 +3474,72 @@ def _requested_years(year: object) -> list[int]:
         if token.isdigit():
             years.append(int(token))
     return years
+
+
+def _run_version_comparison_pair(
+    *,
+    context: object,
+    run_root: Path,
+    economy: str,
+    scenario: str,
+    original_upload: ExportUpload,
+    new_upload: ExportUpload,
+    esto_table_path: Path | None,
+    min_year: int,
+    max_year: int,
+    green_percent: float,
+    yellow_percent: float,
+) -> tuple[object, dict[str, int], dict[str, float]]:
+    """Render isolated version roots, then overlay Version 1 onto Version 2."""
+    outcomes: dict[str, object] = {}
+    elapsed: dict[str, float] = {}
+    for role, upload in (("original", original_upload), ("new", new_upload)):
+        role_directory = run_root / "version_exports" / role
+        role_directory.mkdir(parents=True, exist_ok=True)
+        _copy_input(upload.path, role_directory)
+        # Each renderer clears its output root. Isolation is therefore part of
+        # the correctness contract, not merely tidier output organisation.
+        role_context = replace(
+            context,
+            output_root=context.output_root / "version_comparison" / role,
+            log_root=context.log_root / "version_comparison" / role,
+        )
+        started = time.perf_counter()
+        outcomes[role] = developer_launcher.run_dashboard_from_export(
+            context=role_context,
+            economy=economy,
+            export_dir=role_directory,
+            esto_table_path=esto_table_path,
+            min_year=min_year,
+            max_year=max_year,
+            run_label=f"web-version-{role}",
+            trace_only=role == "original",
+        )
+        elapsed[role] = time.perf_counter() - started
+
+    original_outcome = outcomes["original"]
+    new_outcome = outcomes["new"]
+    if not original_outcome.ok:
+        raise RuntimeError(
+            original_outcome.error or "Version 1 trace generation failed."
+        )
+    counts: dict[str, int] = {}
+    if new_outcome.ok:
+        original_root = Path(original_outcome.outputs["comparison_trace_root"])
+        # A full multi-scope render reports its container as ``output_root``;
+        # the default comparable dashboard is the parent of its declared
+        # chart-bundle directory.
+        new_root = Path(new_outcome.outputs["chart_bundle_directory"]).parent
+        if original_root.resolve() == new_root.resolve():
+            raise RuntimeError("Version 1 and Version 2 used the same output root.")
+        counts = apply_version_comparison(
+            original_root,
+            new_root,
+            scenario=scenario,
+            green_percent=green_percent,
+            yellow_percent=yellow_percent,
+        )
+    return new_outcome, counts, elapsed
 
 
 def build_review_from_export(
@@ -3625,6 +3731,7 @@ def build_review_from_export(
         dashboard_page_names: list[str] = []
         dashboard_seconds: float | None = None
         version_state_counts: dict[str, int] = {}
+        comparison_role_seconds: dict[str, float] = {}
         # One dashboard per economy: the renderer covers a single economy, so
         # several are rendered in turn and reported separately.
         dashboards: list[dict[str, object]] = []
@@ -3642,49 +3749,23 @@ def build_review_from_export(
                 try:
                     if is_version_comparison:
                         assert original_upload is not None and new_upload is not None
-                        role_outcomes = {}
-                        for role, upload in (
-                            ("original", original_upload),
-                            ("new", new_upload),
-                        ):
-                            role_directory = run_root / "version_exports" / role
-                            role_directory.mkdir(parents=True, exist_ok=True)
-                            _copy_input(upload.path, role_directory)
-                            # Each renderer clears its output root. Keep the
-                            # two versions isolated until their chart bundles
-                            # have been overlaid onto the Version 2 dashboard.
-                            role_context = replace(
-                                context,
-                                output_root=context.output_root / "version_comparison" / role,
-                                log_root=context.log_root / "version_comparison" / role,
-                            )
-                            role_outcomes[role] = (
-                                developer_launcher.run_dashboard_from_export(
-                                    context=role_context,
-                                    economy=name,
-                                    export_dir=role_directory,
-                                    esto_table_path=local_esto,
-                                    min_year=dashboard_min_year_value,
-                                    max_year=dashboard_max_year_value,
-                                    run_label=f"web-version-{role}",
-                                    trace_only=role == "original",
-                                )
-                            )
-                        original_outcome = role_outcomes["original"]
-                        outcome = role_outcomes["new"]
-                        if not original_outcome.ok:
-                            raise RuntimeError(
-                                original_outcome.error
-                                or "Original dashboard generation failed."
-                            )
-                        if outcome.ok:
-                            version_state_counts = apply_version_comparison(
-                                Path(original_outcome.outputs["comparison_trace_root"]),
-                                Path(outcome.outputs["dashboard_index"]).parent,
-                                scenario=scenario_value,
-                                green_percent=green_percent_value,
-                                yellow_percent=yellow_percent_value,
-                            )
+                        (
+                            outcome,
+                            version_state_counts,
+                            comparison_role_seconds,
+                        ) = _run_version_comparison_pair(
+                            context=context,
+                            run_root=run_root,
+                            economy=name,
+                            scenario=scenario_value,
+                            original_upload=original_upload,
+                            new_upload=new_upload,
+                            esto_table_path=local_esto,
+                            min_year=dashboard_min_year_value,
+                            max_year=dashboard_max_year_value,
+                            green_percent=green_percent_value,
+                            yellow_percent=yellow_percent_value,
+                        )
                     else:
                         outcome = developer_launcher.run_dashboard_from_export(
                             context=context,
@@ -3812,6 +3893,16 @@ def build_review_from_export(
         runtime_seconds = {
             "workbook": round(workbook_seconds, 1) if workbook_seconds is not None else None,
             "dashboard": round(dashboard_seconds, 1) if dashboard_seconds is not None else None,
+            "version_1_trace_only": (
+                round(comparison_role_seconds["original"], 1)
+                if "original" in comparison_role_seconds
+                else None
+            ),
+            "version_2_full": (
+                round(comparison_role_seconds["new"], 1)
+                if "new" in comparison_role_seconds
+                else None
+            ),
             "full_run": round(time.perf_counter() - run_started, 1),
         }
         # Only successful runs are recorded, so a failure cannot drag the
@@ -3824,6 +3915,13 @@ def build_review_from_export(
         for group, measured in runtime_seconds.items():
             if measured is None:
                 continue
+            if group in {"version_1_trace_only", "version_2_full"}:
+                continue
+            if group == "dashboard" and is_version_comparison:
+                # The comparison total contains two different render modes;
+                # storing it as one ordinary dashboard would double-count it
+                # when the UI composes the two measured components.
+                continue
             if group == "dashboard":
                 measured = round(measured / rendered_count, 1)
             # "full run" means both halves; recording a workbook-only or
@@ -3831,6 +3929,12 @@ def build_review_from_export(
             if group == "full_run" and not (wants_workbook and wants_dashboard):
                 continue
             _save_runtime_sample(group, measured, years=year_count)
+        if is_version_comparison and comparison_role_seconds:
+            _save_runtime_sample(
+                "dashboard_trace_only",
+                comparison_role_seconds["original"],
+            )
+            _save_runtime_sample("dashboard", comparison_role_seconds["new"])
         summary = {
             "status": "succeeded",
             "source_commit": _source_commit(),
@@ -4450,7 +4554,7 @@ def create_app():
                         "dashboard gets a Reference/Target toggle. Adds a few "
                         "minutes to the run.</p>"
                     )
-                    gr.HTML(
+                    dashboard_runtime_note = gr.HTML(
                         "<p class='card-note runtime-note'>"
                         + html.escape(
                             format_runtime_note(
@@ -4594,8 +4698,19 @@ def create_app():
         for _control in (year, want_workbook, want_dashboard):
             _control.change(
                 fn=update_runtime_notes,
-                inputs=[year, want_workbook, want_dashboard, balance_export_workbook],
-                outputs=[workbook_runtime_note, calculator_animation, run_button],
+                inputs=[
+                    year,
+                    want_workbook,
+                    want_dashboard,
+                    balance_export_workbook,
+                    compare_versions,
+                ],
+                outputs=[
+                    workbook_runtime_note,
+                    dashboard_runtime_note,
+                    calculator_animation,
+                    run_button,
+                ],
             )
         clear_export_outputs = [
             balance_export_workbook,
@@ -4654,8 +4769,19 @@ def create_app():
             # parallel callbacks raced and left Run disabled until Dashboard
             # was clicked a second time.
             fn=update_runtime_notes,
-            inputs=[year, want_workbook, want_dashboard, balance_export_workbook],
-            outputs=[workbook_runtime_note, calculator_animation, run_button],
+            inputs=[
+                year,
+                want_workbook,
+                want_dashboard,
+                balance_export_workbook,
+                compare_versions,
+            ],
+            outputs=[
+                workbook_runtime_note,
+                dashboard_runtime_note,
+                calculator_animation,
+                run_button,
+            ],
         )
         esto_vintage.change(
             fn=adjust_review_year_for_vintage,
@@ -4682,8 +4808,19 @@ def create_app():
             outputs=export_readout,
         ).then(
             fn=update_runtime_notes,
-            inputs=[year, want_workbook, want_dashboard, balance_export_workbook],
-            outputs=[workbook_runtime_note, calculator_animation, run_button],
+            inputs=[
+                year,
+                want_workbook,
+                want_dashboard,
+                balance_export_workbook,
+                compare_versions,
+            ],
+            outputs=[
+                workbook_runtime_note,
+                dashboard_runtime_note,
+                calculator_animation,
+                run_button,
+            ],
         )
         for _version_role in (original_export_name, new_export_name):
             _version_role.change(
@@ -4696,8 +4833,19 @@ def create_app():
             outputs=clear_export_outputs,
         ).then(
             fn=update_runtime_notes,
-            inputs=[year, want_workbook, want_dashboard, balance_export_workbook],
-            outputs=[workbook_runtime_note, calculator_animation, run_button],
+            inputs=[
+                year,
+                want_workbook,
+                want_dashboard,
+                balance_export_workbook,
+                compare_versions,
+            ],
+            outputs=[
+                workbook_runtime_note,
+                dashboard_runtime_note,
+                calculator_animation,
+                run_button,
+            ],
         )
         # Starting a run hands the work to a background worker and remembers
         # its id in the browser, so closing the tab does not cancel the build

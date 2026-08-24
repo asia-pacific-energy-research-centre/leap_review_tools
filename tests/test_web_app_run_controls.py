@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from web_app import app
+from web_app.runtime_profile import empty_runtime_profile, record_runtime_sample
 
 
 def test_browser_does_not_derive_readiness_from_replaced_file_input() -> None:
@@ -31,9 +32,36 @@ def test_runtime_update_enables_run_from_server_upload_state(monkeypatch) -> Non
     monkeypatch.setattr(app, "read_uploads", lambda value: [])
     monkeypatch.setattr(app, "group_by_economy", lambda uploads: {})
 
-    _, _, run_button = app.update_runtime_notes("2022", False, True, ["export.xlsx"])
+    _, _, _, run_button = app.update_runtime_notes(
+        "2022", False, True, ["export.xlsx"]
+    )
 
     assert run_button.interactive is True
+
+
+def test_runtime_update_uses_version_comparison_copy(monkeypatch) -> None:
+    profile = record_runtime_sample(
+        empty_runtime_profile(),
+        process_group="dashboard_trace_only",
+        elapsed_seconds=120,
+    )
+    profile = record_runtime_sample(
+        profile,
+        process_group="dashboard",
+        elapsed_seconds=480,
+    )
+    monkeypatch.setattr(app, "_hosted_runtime_profile", lambda: profile)
+    monkeypatch.setattr(app, "_uploaded_paths", lambda value: [Path("export.xlsx")])
+    monkeypatch.setattr(app, "read_uploads", lambda value: [])
+    monkeypatch.setattr(app, "group_by_economy", lambda uploads: {})
+
+    _, dashboard_note, calculator, _ = app.update_runtime_notes(
+        "2022", False, True, ["export.xlsx"], True
+    )
+
+    assert "Version 1 / Version 2 comparison" in dashboard_note
+    assert "trace-only Version 1" in dashboard_note
+    assert 'data-expected="600"' in calculator
 
 
 def test_prepare_run_resets_upload_lost_during_space_restart(tmp_path) -> None:

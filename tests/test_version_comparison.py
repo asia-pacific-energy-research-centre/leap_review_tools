@@ -26,6 +26,7 @@ def test_version_comparison_adds_paired_lines_and_colour(tmp_path: Path) -> None
     original, new = tmp_path / "original", tmp_path / "new"
     _dashboard(original, 100)
     _dashboard(new, 103)
+    original_bundle_before = (original / "chart_bundles" / "supply.json").read_bytes()
 
     counts = apply_version_comparison(
         original, new, scenario="Target", green_percent=1, yellow_percent=5
@@ -36,7 +37,29 @@ def test_version_comparison_adds_paired_lines_and_colour(tmp_path: Path) -> None
     )["charts"]["chart-a"]
     assert counts == {"green": 0, "yellow": 1, "red": 0}
     assert [trace["name"] for trace in figure["data"]] == [
-        "LEAP Target Total original",
-        "LEAP Target Total new",
+        "LEAP Target Total — Version 1 (original)",
+        "LEAP Target Total — Version 2 (new)",
     ]
+    assert [trace["x"] for trace in figure["data"]] == [
+        [2022, 2023],
+        [2022, 2023],
+    ]
+    assert [trace["y"] for trace in figure["data"]] == [
+        [100, 100],
+        [100, 103],
+    ]
+    assert (original / "chart_bundles" / "supply.json").read_bytes() == original_bundle_before
     assert 'version-yellow' in (new / "dashboards" / "supply.html").read_text()
+
+
+def test_version_comparison_refuses_a_silent_no_op(tmp_path: Path) -> None:
+    original, new = tmp_path / "original", tmp_path / "new"
+    (original / "chart_bundles").mkdir(parents=True)
+    (new / "chart_bundles").mkdir(parents=True)
+
+    import pytest
+
+    with pytest.raises(ValueError, match="No comparable Version 1 / Version 2"):
+        apply_version_comparison(
+            original, new, scenario="Target", green_percent=1, yellow_percent=5
+        )
