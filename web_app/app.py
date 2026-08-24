@@ -21,7 +21,7 @@ import tempfile
 import threading
 import time
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -3650,9 +3650,17 @@ def build_review_from_export(
                             role_directory = run_root / "version_exports" / role
                             role_directory.mkdir(parents=True, exist_ok=True)
                             _copy_input(upload.path, role_directory)
+                            # Each renderer clears its output root. Keep the
+                            # two versions isolated until their chart bundles
+                            # have been overlaid onto the Version 2 dashboard.
+                            role_context = replace(
+                                context,
+                                output_root=context.output_root / "version_comparison" / role,
+                                log_root=context.log_root / "version_comparison" / role,
+                            )
                             role_outcomes[role] = (
                                 developer_launcher.run_dashboard_from_export(
-                                    context=context,
+                                    context=role_context,
                                     economy=name,
                                     export_dir=role_directory,
                                     esto_table_path=local_esto,
