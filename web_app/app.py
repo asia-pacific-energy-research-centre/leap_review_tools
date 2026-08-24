@@ -3648,6 +3648,7 @@ def build_review_from_export(
                                     min_year=dashboard_min_year_value,
                                     max_year=dashboard_max_year_value,
                                     run_label=f"web-version-{role}",
+                                    trace_only=role == "original",
                                 )
                             )
                         original_outcome = role_outcomes["original"]
@@ -3659,7 +3660,7 @@ def build_review_from_export(
                             )
                         if outcome.ok:
                             version_state_counts = apply_version_comparison(
-                                Path(original_outcome.outputs["dashboard_index"]).parent,
+                                Path(original_outcome.outputs["comparison_trace_root"]),
                                 Path(outcome.outputs["dashboard_index"]).parent,
                                 scenario=scenario_value,
                                 green_percent=green_percent_value,
