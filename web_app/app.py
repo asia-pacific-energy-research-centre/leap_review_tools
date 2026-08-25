@@ -1926,6 +1926,21 @@ def _complete_run_archive_name(
     )
 
 
+def _dashboard_archive_name(
+    economy: object,
+    scenario: object,
+    *,
+    created_at: datetime | None = None,
+) -> str:
+    """Return a recognisable filename for a self-contained dashboard ZIP."""
+    timestamp = _as_tokyo_time(created_at or datetime.now(timezone.utc))
+    return (
+        f"{_safe_filename_token(economy)}_"
+        f"{_safe_filename_token(scenario)}_dashboard_archive_"
+        f"{timestamp.strftime('%d%m%y_%H%M%S')}.zip"
+    )
+
+
 def _source_commit() -> str:
     """Return the current source commit for the run summary."""
     try:
@@ -2084,48 +2099,74 @@ def _write_diagnostics_bundle(
             path = run_directory / name
             if path.is_file():
                 bundle.write(path, arcname=name)
-        if dashboard_directory is not None and dashboard_directory.is_dir():
-            bundle_root = _dashboard_bundle_root(dashboard_directory)
-            if bundle_root != dashboard_directory.parent:
-                for path in sorted(bundle_root.rglob("*")):
-                    if path.is_file() and path.name not in {
-                        "run_manifest.json",
-                        "run_manifest.txt",
-                        "validation_report.txt",
-                    }:
-                        bundle.write(
-                            path,
-                            arcname=f"dashboard/{path.relative_to(bundle_root)}",
-                        )
-                dashboard_directory = None
-        if dashboard_directory is not None and dashboard_directory.is_dir():
-            # Dashboard pages refer to chart bundles with ../chart_bundles/.
-            # Keep that sibling relationship inside the ZIP so extracting the
-            # dashboard folder preserves the links used by the HTML pages.
-            dashboard_root = dashboard_directory.parent
-            chart_directory = dashboard_root / "chart_bundles"
-            if not chart_directory.is_dir():
-                dashboard_root = dashboard_directory
-                chart_directory = dashboard_root / "chart_bundles"
-            for path in sorted(dashboard_directory.rglob("*")):
-                if path.is_file():
-                    bundle.write(
-                        path,
-                        arcname=f"dashboard/dashboards/{path.relative_to(dashboard_directory)}",
-                    )
-            if chart_directory.is_dir():
-                for path in sorted(chart_directory.rglob("*")):
-                    if path.is_file():
-                        bundle.write(
-                            path,
-                            arcname=f"dashboard/chart_bundles/{path.relative_to(chart_directory)}",
-                        )
-            shortcut = dashboard_root / "OPEN THE DASHBOARD.html"
-            if shortcut.is_file():
-                bundle.write(shortcut, arcname="dashboard/OPEN THE DASHBOARD.html")
+        if dashboard_directory is not None:
+            _add_dashboard_files(bundle, dashboard_directory)
         if log_directory is not None and log_directory.is_dir():
             for path in sorted(log_directory.glob("*.log")):
                 bundle.write(path, arcname=f"logs/{path.name}")
+
+
+def _add_dashboard_files(bundle: zipfile.ZipFile, dashboard_directory: Path) -> None:
+    """Add the pages and data required to open a dashboard after extraction."""
+    if not dashboard_directory.is_dir():
+        return
+    bundle_root = _dashboard_bundle_root(dashboard_directory)
+    if bundle_root != dashboard_directory.parent:
+        for path in sorted(bundle_root.rglob("*")):
+            if path.is_file() and path.name not in {
+                "run_manifest.json",
+                "run_manifest.txt",
+                "validation_report.txt",
+            }:
+                bundle.write(
+                    path,
+                    arcname=f"dashboard/{path.relative_to(bundle_root)}",
+                )
+        return
+
+    # Dashboard pages refer to chart bundles with ../chart_bundles/. Keep that
+    # sibling relationship so extracting the ZIP preserves the HTML links.
+    dashboard_root = dashboard_directory.parent
+    chart_directory = dashboard_root / "chart_bundles"
+    supporting_directory = dashboard_root / "supporting_files"
+    if not chart_directory.is_dir():
+        dashboard_root = dashboard_directory
+        chart_directory = dashboard_root / "chart_bundles"
+        supporting_directory = dashboard_root / "supporting_files"
+    for path in sorted(dashboard_directory.rglob("*")):
+        if path.is_file():
+            bundle.write(
+                path,
+                arcname=f"dashboard/dashboards/{path.relative_to(dashboard_directory)}",
+            )
+    if chart_directory.is_dir():
+        for path in sorted(chart_directory.rglob("*")):
+            if path.is_file():
+                bundle.write(
+                    path,
+                    arcname=f"dashboard/chart_bundles/{path.relative_to(chart_directory)}",
+                )
+    if supporting_directory.is_dir():
+        for path in sorted(supporting_directory.rglob("*")):
+            if path.is_file():
+                bundle.write(
+                    path,
+                    arcname=(
+                        "dashboard/supporting_files/"
+                        f"{path.relative_to(supporting_directory)}"
+                    ),
+                )
+    shortcut = dashboard_root / "OPEN THE DASHBOARD.html"
+    if shortcut.is_file():
+        bundle.write(shortcut, arcname="dashboard/OPEN THE DASHBOARD.html")
+
+
+def _write_dashboard_bundle(
+    *, bundle_path: Path, dashboard_directory: Path
+) -> None:
+    """Write a dashboard-only archive without workbooks, logs, or run inputs."""
+    with zipfile.ZipFile(bundle_path, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+        _add_dashboard_files(bundle, dashboard_directory)
 
 
 def _dashboard_pages(dashboard_directory: Path) -> list[str]:
@@ -3590,9 +3631,10 @@ def build_review_from_export(
     compare_versions: object = False,
     original_export_name: object = None,
     new_export_name: object = None,
-) -> tuple[str, str, object, str | None, str, object, object]:
+) -> tuple[str, str, object, str | None, str, object, object, str | None]:
     """Build the outputs a run asked for, from one LEAP export."""
     persistent_bundle: Path | None = None
+    persistent_dashboard_bundle: Path | None = None
     run_started = time.perf_counter()
     try:
         _raise_if_cancelled(cancellation_check)
@@ -3850,11 +3892,14 @@ def build_review_from_export(
 
         persistent_workbooks: list[Path] = []
         persistent_bundle = None
+        persistent_dashboard_bundle = None
         _raise_if_cancelled(cancellation_check)
-        if wants_workbook and result is not None:
+        persistent_dir: Path | None = None
+        if (wants_workbook and result is not None) or dashboard_directory is not None:
             persistent_dir = Path(
                 tempfile.mkdtemp(prefix="leap_balance_review_download_")
             )
+        if wants_workbook and result is not None and persistent_dir is not None:
             for workbook_path in workbook_paths:
                 target = persistent_dir / workbook_path.name
                 shutil.copy2(workbook_path, target)
@@ -3870,6 +3915,15 @@ def build_review_from_export(
                 run_directory=result.run_directory,
                 dashboard_directory=dashboard_directory,
                 log_directory=run_root / "logs",
+            )
+        if dashboard_directory is not None and persistent_dir is not None:
+            persistent_dashboard_bundle = persistent_dir / _dashboard_archive_name(
+                economy_value,
+                scenario_value,
+            )
+            _write_dashboard_bundle(
+                bundle_path=persistent_dashboard_bundle,
+                dashboard_directory=dashboard_directory,
             )
 
         # Each rendered economy gets its own snapshot and its own link.
@@ -4060,6 +4114,11 @@ def build_review_from_export(
                 snapshot["archive_id"] if snapshot else None,
             ),
             browser_archive_records,
+            (
+                str(persistent_dashboard_bundle)
+                if persistent_dashboard_bundle
+                else None
+            ),
         )
     except RunCancelled:
         raise
@@ -4072,6 +4131,7 @@ def build_review_from_export(
             RESULTS_EMPTY_HTML,
             _dropdown_update(_browser_dashboard_choices(browser_archives), None),
             browser_archives if isinstance(browser_archives, list) else [],
+            None,
         )
 
 
@@ -4096,7 +4156,7 @@ def poll_run(job_id: object, browser_archives: object):
         # Nothing to watch: an unknown or forgotten id stops the timer.
         return (
             gr.skip(), gr.skip(), gr.skip(), gr.skip(), gr.skip(),
-            gr.skip(), gr.skip(),
+            gr.skip(), gr.skip(), gr.skip(),
             gr.Timer(active=False),
             gr.Button("Run", interactive=True),
             gr.Button(visible=False),
@@ -4111,7 +4171,7 @@ def poll_run(job_id: object, browser_archives: object):
             # second progress line of its own.
             gr.skip(), _status_html(job_step(job_id), tone="is-step"),
             gr.skip(), gr.skip(),
-            gr.skip(), gr.skip(), gr.skip(),
+            gr.skip(), gr.skip(), gr.skip(), gr.skip(),
             gr.Timer(active=True),
             gr.Button("Running…", interactive=False),
             gr.Button(
@@ -4126,7 +4186,7 @@ def poll_run(job_id: object, browser_archives: object):
         return (
             gr.skip(),
             _status_html(str(job.get("message") or "Run cancelled.")),
-            gr.skip(), gr.skip(), gr.skip(), gr.skip(), gr.skip(),
+            gr.skip(), gr.skip(), gr.skip(), gr.skip(), gr.skip(), gr.skip(),
             gr.Timer(active=False),
             gr.Button("Run", interactive=True),
             gr.Button(visible=False),
@@ -4147,6 +4207,7 @@ def poll_run(job_id: object, browser_archives: object):
             gr.skip(),
             _dropdown_update(_browser_dashboard_choices(saved), None),
             saved,
+            gr.skip(),
             gr.Timer(active=False),
             gr.Button("Run", interactive=True),
             gr.Button(visible=False),
@@ -4154,12 +4215,13 @@ def poll_run(job_id: object, browser_archives: object):
             gr.skip(),
         )
     result = job.get("result") or ()
-    if len(result) != 7:
+    if len(result) != 8:
         return (
             "", _status_html("The run finished without producing outputs."), [], None,
             RESULTS_EMPTY_HTML,
             _dropdown_update(_browser_dashboard_choices(saved), None),
             saved,
+            None,
             gr.Timer(active=False),
             gr.Button("Run", interactive=True),
             gr.Button(visible=False),
@@ -4172,7 +4234,9 @@ def poll_run(job_id: object, browser_archives: object):
         gr.Button("Run", interactive=True),
         gr.Button(visible=False),
         "",
-        _last_run_record(result[0], result[1], result[2], result[3], result[6]),
+        _last_run_record(
+            result[0], result[1], result[2], result[3], result[7], result[6]
+        ),
     )
 
 
@@ -4181,6 +4245,7 @@ def _last_run_record(
     status_html: str,
     workbooks: object,
     bundle: object,
+    dashboard_bundle: object,
     archives: object,
 ) -> dict[str, object]:
     """Return the small record kept in the browser to restore a finished run.
@@ -4207,6 +4272,7 @@ def _last_run_record(
         "status": str(status_html or ""),
         "workbooks": [str(path) for path in (workbooks or [])],
         "bundle": str(bundle) if bundle else "",
+        "dashboard_bundle": str(dashboard_bundle) if dashboard_bundle else "",
         "archive_ids": [str(archive_id) for archive_id in current_archive_ids],
         "finished_at": _format_tokyo_timestamp(datetime.now(timezone.utc)),
     }
@@ -4223,7 +4289,7 @@ def restore_last_run(last_run: object, browser_archives: object):
 
     record = last_run if isinstance(last_run, dict) else {}
     if not record.get("summary") and not record.get("archive_ids"):
-        return gr.skip(), gr.skip(), gr.skip(), gr.skip(), gr.skip()
+        return gr.skip(), gr.skip(), gr.skip(), gr.skip(), gr.skip(), gr.skip()
 
     archives = browser_archives if isinstance(browser_archives, list) else []
     wanted = set(record.get("archive_ids") or [])
@@ -4252,8 +4318,16 @@ def restore_last_run(last_run: object, browser_archives: object):
     surviving = [path for path in record.get("workbooks") or [] if Path(path).is_file()]
     bundle = record.get("bundle") or ""
     bundle_path = bundle if bundle and Path(bundle).is_file() else None
+    dashboard_bundle = record.get("dashboard_bundle") or ""
+    dashboard_bundle_path = (
+        dashboard_bundle
+        if dashboard_bundle and Path(dashboard_bundle).is_file()
+        else None
+    )
 
-    expired = bool(record.get("workbooks")) and not surviving
+    expected_downloads = bool(record.get("workbooks") or bundle or dashboard_bundle)
+    surviving_downloads = bool(surviving or bundle_path or dashboard_bundle_path)
+    expired = expected_downloads and not surviving_downloads
     note = (
         f"<span class='result-hint'>Restored from "
         f"{html.escape(_run_timestamp_label({'created_at': record.get('finished_at', '')}))}."
@@ -4264,12 +4338,13 @@ def restore_last_run(last_run: object, browser_archives: object):
         )
         + "</span>"
     )
-    if not (links or surviving or expired):
+    available_downloads = bool(surviving or bundle_path or dashboard_bundle_path)
+    if not (links or available_downloads or expired):
         # Nothing survived worth showing; leave the panel in its resting state
         # rather than captioning an empty result.
-        return gr.skip(), gr.skip(), gr.skip(), gr.skip(), gr.skip()
+        return gr.skip(), gr.skip(), gr.skip(), gr.skip(), gr.skip(), gr.skip()
 
-    if links or surviving:
+    if links or available_downloads:
         links_html = _result_links_html(
             dashboard_url=None,
             dashboard_links=links,
@@ -4292,6 +4367,7 @@ def restore_last_run(last_run: object, browser_archives: object):
         surviving,
         bundle_path,
         links_html,
+        dashboard_bundle_path,
     )
 
 
@@ -4673,6 +4749,10 @@ def create_app():
                     label="Review workbook(s)",
                     file_count="multiple",
                 )
+                dashboard_download = gr.File(
+                    label="Dashboard archive (.zip)",
+                    elem_id="dashboard-download",
+                )
                 diagnostics_bundle = gr.File(
                     label="Complete run archive (.zip)",
                     elem_id="diagnostics-bundle",
@@ -4700,7 +4780,7 @@ def create_app():
                     "reopening. They are not a backup: the oldest is replaced when "
                     "a fourth is saved, while website updates, clearing site data, "
                     "private browsing, storage limits, or switching browser or "
-                    "device may remove them. Download the **Complete run archive "
+                    "device may remove them. Download the **Dashboard archive "
                     "(.zip)** to keep a permanent copy.",
                     elem_id="saved-reviews-note",
                 )
@@ -4902,6 +4982,7 @@ def create_app():
             result_links,
             dashboard_archive,
             browser_archives,
+            dashboard_download,
         ]
         run_button.click(
             fn=prepare_run,
@@ -4983,7 +5064,14 @@ def create_app():
         ).then(
             fn=restore_last_run,
             inputs=[last_run, browser_archives],
-            outputs=[summary, status, output, diagnostics_bundle, result_links],
+            outputs=[
+                summary,
+                status,
+                output,
+                diagnostics_bundle,
+                result_links,
+                dashboard_download,
+            ],
         ).then(
             fn=resume_run,
             inputs=[active_job, browser_archives],

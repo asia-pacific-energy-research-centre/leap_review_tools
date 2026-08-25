@@ -40,6 +40,7 @@ def test_results_copy_keeps_only_saved_dashboard_limits() -> None:
     }
 
     assert "Complete run archive (.zip)" in labels
+    assert "Dashboard archive (.zip)" in labels
     assert "The safest way to keep this run" not in text
     assert "website updates, clearing site data" in text
     assert "the oldest is replaced when a fourth is saved" in text
@@ -53,6 +54,14 @@ def test_complete_run_archive_name_identifies_run_and_creation_time() -> None:
     )
 
     assert name == "05_PRC_Target_complete_run_archive_120826_220405.zip"
+
+
+def test_dashboard_archive_name_identifies_run_and_creation_time() -> None:
+    created_at = datetime(2026, 8, 12, 13, 4, 5, tzinfo=timezone.utc)
+
+    name = app._dashboard_archive_name("05_PRC", "Target", created_at=created_at)
+
+    assert name == "05_PRC_Target_dashboard_archive_120826_220405.zip"
 
 
 def test_saved_dashboard_labels_use_details_then_time_to_disambiguate() -> None:
@@ -119,13 +128,16 @@ def test_refresh_restores_downloads_that_still_exist(tmp_path) -> None:
     """Restoring browser state reads surviving files without expiring them."""
     workbook = tmp_path / "review.xlsx"
     archive = tmp_path / "complete-run.zip"
+    dashboard_archive = tmp_path / "dashboard.zip"
     workbook.write_bytes(b"workbook")
     archive.write_bytes(b"archive")
+    dashboard_archive.write_bytes(b"dashboard archive")
     record = {
         "summary": "Finished",
         "status": "Complete",
         "workbooks": [str(workbook)],
         "bundle": str(archive),
+        "dashboard_bundle": str(dashboard_archive),
         "finished_at": "2026-08-12 10:00 UTC",
     }
 
@@ -133,7 +145,8 @@ def test_refresh_restores_downloads_that_still_exist(tmp_path) -> None:
 
     assert restored[2] == [str(workbook)]
     assert restored[3] == str(archive)
-    assert "Restored from 2026-08-12 19:00 JST" in restored[4]
+    assert "Restored from 12 Aug 2026 19:00:00 JST" in restored[4]
+    assert restored[5] == str(dashboard_archive)
     assert workbook.is_file()
     assert archive.is_file()
 
@@ -146,6 +159,7 @@ def test_refresh_reports_downloads_removed_with_the_server_instance(tmp_path) ->
         "status": "Complete",
         "workbooks": [str(missing_workbook)],
         "bundle": str(tmp_path / "removed-archive.zip"),
+        "dashboard_bundle": str(tmp_path / "removed-dashboard.zip"),
         "finished_at": "2026-08-12 10:00 UTC",
     }
 
@@ -154,3 +168,25 @@ def test_refresh_reports_downloads_removed_with_the_server_instance(tmp_path) ->
     assert restored[2] == []
     assert restored[3] is None
     assert "cleared from the server" in restored[4]
+    assert restored[5] is None
+
+
+def test_refresh_restores_dashboard_only_archive_without_a_workbook(
+    tmp_path,
+) -> None:
+    dashboard_archive = tmp_path / "dashboard.zip"
+    dashboard_archive.write_bytes(b"dashboard archive")
+    record = {
+        "summary": "Finished",
+        "status": "Complete",
+        "workbooks": [],
+        "bundle": "",
+        "dashboard_bundle": str(dashboard_archive),
+        "finished_at": "2026-08-12 10:00 UTC",
+    }
+
+    restored = app.restore_last_run(record, [])
+
+    assert restored[2] == []
+    assert restored[3] is None
+    assert restored[5] == str(dashboard_archive)

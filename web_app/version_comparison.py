@@ -12,14 +12,44 @@ import numpy as np
 def _total_index(figure: dict, scenario: str) -> int | None:
     tag = "ref" if scenario.casefold() == "reference" else "tgt"
     metadata = figure.get("layout", {}).get("meta", {}).get("trace_meta", [])
-    for index, (trace, meta) in enumerate(zip(figure.get("data", []), metadata)):
-        if (
-            str(meta.get("source_system", "")).upper() == "LEAP"
-            and str(meta.get("tag", "")).lower() == tag
-            and "total" in str(trace.get("name", "")).lower()
+    candidates = [
+        (index, str(trace.get("name", "")).strip())
+        for index, (trace, meta) in enumerate(zip(figure.get("data", []), metadata))
+        if str(meta.get("source_system", "")).upper() == "LEAP"
+        and str(meta.get("tag", "")).lower() == tag
+    ]
+    for index, name in candidates:
+        if "total" in name.casefold():
+            return index
+
+    # Several renderer chart families give the aggregate a scoped name such
+    # as ``LEAP Target (Domestic TFC)`` or simply ``LEAP Target``. Requiring
+    # the literal word "total" silently omitted those otherwise-comparable
+    # charts from the Version 1 / Version 2 overlay.
+    aggregate_prefix = f"leap {scenario}".casefold()
+    for index, name in candidates:
+        normalised = " ".join(name.casefold().split())
+        if normalised == aggregate_prefix or normalised.startswith(
+            aggregate_prefix + " ("
         ):
             return index
+
+    # A lone LEAP scenario trace is unambiguous even when its display label is
+    # specialised. Multiple component traces are deliberately not guessed at.
+    if len(candidates) == 1:
+        return candidates[0][0]
     return None
+
+
+def _axis_values(values: object) -> list[object]:
+    """Decode an x-axis without assuming it contains numeric years."""
+    if isinstance(values, list):
+        return values
+    if isinstance(values, dict) and {"dtype", "bdata"} <= set(values):
+        return np.frombuffer(
+            base64.b64decode(values["bdata"]), dtype=np.dtype(values["dtype"])
+        ).tolist()
+    raise ValueError("This chart uses an unsupported chart-axis format.")
 
 
 def _values(values: object) -> list[float]:
@@ -43,6 +73,18 @@ def _write_bundle(path: Path, charts: dict) -> None:
         "window.COMMON_ESTO_CHART_BUNDLE_DATA=" + payload.replace("</", "<\\/") + ";\n",
         encoding="utf-8",
     )
+
+
+def _version_trace_name(trace_name: object, scenario: str, version: str) -> str:
+    """Add a version suffix without mislabelling a specialised trace as a total."""
+    name = str(trace_name or "").strip()
+    aggregate_prefix = f"leap {scenario}".casefold()
+    normalised = " ".join(name.casefold().split())
+    if "total" in normalised or normalised == aggregate_prefix or normalised.startswith(
+        aggregate_prefix + " ("
+    ):
+        name = f"LEAP {scenario} Total"
+    return f"{name} — {version}"
 
 
 def apply_version_comparison(
@@ -73,17 +115,22 @@ def apply_version_comparison(
                 continue
             old_trace = old_figure["data"][old_index]
             new_trace = new_figure["data"][new_index]
-            old_years, new_years = _values(old_trace["x"]), _values(new_trace["x"])
+            old_years = _axis_values(old_trace["x"])
+            new_years = _axis_values(new_trace["x"])
             old_values, new_values = _values(old_trace["y"]), _values(new_trace["y"])
             if old_years != new_years or len(old_values) != len(new_values):
                 continue
             original_trace = copy.deepcopy(old_trace)
             original_trace.update(
-                name=f"LEAP {scenario} Total — Version 1 (original)",
+                name=_version_trace_name(
+                    old_trace.get("name"), scenario, "Version 1 (original)"
+                ),
                 line={"color": "#6b7280", "dash": "dot", "width": 3},
             )
             new_trace.update(
-                name=f"LEAP {scenario} Total — Version 2 (new)",
+                name=_version_trace_name(
+                    new_trace.get("name"), scenario, "Version 2 (new)"
+                ),
                 line={"color": "#1d4ed8", "dash": "solid", "width": 3},
             )
             new_figure["data"].insert(new_index, original_trace)

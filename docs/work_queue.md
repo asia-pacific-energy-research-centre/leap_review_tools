@@ -2,6 +2,9 @@
 
 ## Completed
 
+- 2026-08-25: Apply Version 1 / Version 2 overlays to renderer aggregates named
+  without the literal word `Total`, and offer a self-contained dashboard/data
+  ZIP independently of the workbook-oriented complete-run archive.
 - 2026-08-24: Disable green/yellow/red Version 1 / Version 2 chart borders
   while retaining the paired original/new comparison traces.
 - 2026-08-24: Keep the two Version 1 / Version 2 selectors complementary:

@@ -70,3 +70,96 @@ def test_version_comparison_refuses_a_silent_no_op(tmp_path: Path) -> None:
         apply_version_comparison(
             original, new, scenario="Target", green_percent=1, yellow_percent=5
         )
+
+
+def test_version_comparison_pairs_aggregate_labels_without_the_word_total(
+    tmp_path: Path,
+) -> None:
+    original, new = tmp_path / "original", tmp_path / "new"
+    for root, value in ((original, 100), (new, 103)):
+        (root / "chart_bundles").mkdir(parents=True)
+        figures = {
+            "area": {
+                "data": [
+                    {"name": "Transport", "x": [2022, 2023], "y": [40, 41]},
+                    {"name": "Industry", "x": [2022, 2023], "y": [60, 62]},
+                    {
+                        "name": "LEAP Target (Domestic TFC)",
+                        "x": [2022, 2023],
+                        "y": [100, value],
+                    },
+                ],
+                "layout": {
+                    "meta": {
+                        "trace_meta": [
+                            {"source_system": "LEAP", "tag": "tgt"},
+                            {"source_system": "LEAP", "tag": "tgt"},
+                            {"source_system": "LEAP", "tag": "tgt"},
+                        ]
+                    }
+                },
+            },
+            "line": {
+                "data": [
+                    {"name": "LEAP Target", "x": [2022, 2023], "y": [100, value]}
+                ],
+                "layout": {
+                    "meta": {
+                        "trace_meta": [{"source_system": "LEAP", "tag": "tgt"}]
+                    }
+                },
+            },
+            "categorical": {
+                "data": [
+                    {
+                        "name": "LEAP fuel comparison",
+                        "x": ["Coal", "Gas"],
+                        "y": [100, value],
+                    }
+                ],
+                "layout": {
+                    "meta": {
+                        "trace_meta": [{"source_system": "LEAP", "tag": "tgt"}]
+                    }
+                },
+            },
+            "components-only": {
+                "data": [
+                    {"name": "Natural gas", "x": [2022, 2023], "y": [30, 31]},
+                    {"name": "Coal", "x": [2022, 2023], "y": [20, 19]},
+                ],
+                "layout": {
+                    "meta": {
+                        "trace_meta": [
+                            {"source_system": "LEAP", "tag": "tgt"},
+                            {"source_system": "LEAP", "tag": "tgt"},
+                        ]
+                    }
+                },
+            },
+        }
+        (root / "chart_bundles" / "all.json").write_text(
+            json.dumps({"charts": figures})
+        )
+
+    apply_version_comparison(
+        original, new, scenario="Target", green_percent=1, yellow_percent=5
+    )
+
+    charts = json.loads((new / "chart_bundles" / "all.json").read_text())["charts"]
+    for chart_key in ("area", "line"):
+        names = [trace["name"] for trace in charts[chart_key]["data"]]
+        assert "LEAP Target Total — Version 1 (original)" in names
+        assert "LEAP Target Total — Version 2 (new)" in names
+    assert [trace["name"] for trace in charts["categorical"]["data"]] == [
+        "LEAP fuel comparison — Version 1 (original)",
+        "LEAP fuel comparison — Version 2 (new)",
+    ]
+    assert [trace["x"] for trace in charts["categorical"]["data"]] == [
+        ["Coal", "Gas"],
+        ["Coal", "Gas"],
+    ]
+    assert [trace["name"] for trace in charts["components-only"]["data"]] == [
+        "Natural gas",
+        "Coal",
+    ]

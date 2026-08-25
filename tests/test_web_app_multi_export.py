@@ -265,9 +265,16 @@ def test_two_exports_build_one_dashboard_each():
     if not os.environ.get("LEAP_WEB_APP_INTEGRATION"):
         pytest.skip("set LEAP_WEB_APP_INTEGRATION=1 to run the real chain")
 
-    summary_json, _, _, _, links_html, _, archives = build_review_from_export(
-        False, True, "", "", [str(path) for path in exports]
-    )
+    (
+        summary_json,
+        _,
+        _,
+        _,
+        links_html,
+        _,
+        archives,
+        dashboard_archive,
+    ) = build_review_from_export(False, True, "", "", [str(path) for path in exports])
 
     import json
 
@@ -277,3 +284,4 @@ def test_two_exports_build_one_dashboard_each():
     economies = {str(item.get("economy")) for item in archives or []}
     assert economies == {"01_AUS", "05_PRC"}, economies
     assert links_html.count("result-link is-primary") == 2 or "dashboard" in links_html
+    assert dashboard_archive and Path(dashboard_archive).is_file()

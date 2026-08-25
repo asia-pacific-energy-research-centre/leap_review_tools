@@ -17,6 +17,7 @@ from web_app.app import (
     _compress_dashboard_html,
     _decompress_dashboard_html,
     _locked_dashboard_html,
+    _write_dashboard_bundle,
     _write_diagnostics_bundle,
 )
 
@@ -58,7 +59,7 @@ def test_dashboard_snapshot_helpers_round_trip_and_filter_records() -> None:
 
     assert _browser_dashboard_choices(records) == [
         ("20_USA / Target / [2022] (05 Aug 2026 09:00:00 JST)", "run-1"),
-        ("01_AUS / unknown /  ()", "run-2"),
+        ("01_AUS / unknown /  (Time unavailable)", "run-2"),
     ]
     assert _browser_dashboard_record("run-1", records) == records[0]
     assert _browser_dashboard_record("missing", records) is None
@@ -138,6 +139,39 @@ def test_diagnostics_bundle_contains_workbooks_diagnostics_dashboard_and_logs(
             "dashboard/chart_bundles/page.js",
             "dashboard/OPEN THE DASHBOARD.html",
             "logs/run.log",
+        }
+
+
+def test_dashboard_bundle_contains_only_self_contained_dashboard_files(
+    tmp_path: Path,
+) -> None:
+    dashboard_root = tmp_path / "dashboard"
+    dashboards = dashboard_root / "dashboards"
+    chart_bundles = dashboard_root / "chart_bundles"
+    supporting_files = dashboard_root / "supporting_files"
+    dashboards.mkdir(parents=True)
+    chart_bundles.mkdir()
+    supporting_files.mkdir()
+    (dashboards / "energy_balance_overview.html").write_text("<html>dashboard</html>")
+    (chart_bundles / "energy_balance_overview.js").write_text("window.DATA={};")
+    (supporting_files / "chart_manifest.json").write_text("{}")
+    (dashboard_root / "OPEN THE DASHBOARD.html").write_text(
+        '<meta http-equiv="refresh" content="0; url=dashboards/energy_balance_overview.html">'
+    )
+    (tmp_path / "review.xlsx").write_bytes(b"not part of the dashboard")
+    archive_path = tmp_path / "dashboard.zip"
+
+    _write_dashboard_bundle(
+        bundle_path=archive_path,
+        dashboard_directory=dashboards,
+    )
+
+    with zipfile.ZipFile(archive_path) as archive:
+        assert set(archive.namelist()) == {
+            "dashboard/dashboards/energy_balance_overview.html",
+            "dashboard/chart_bundles/energy_balance_overview.js",
+            "dashboard/supporting_files/chart_manifest.json",
+            "dashboard/OPEN THE DASHBOARD.html",
         }
 
 
