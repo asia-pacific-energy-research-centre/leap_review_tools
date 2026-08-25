@@ -46,6 +46,12 @@ def test_results_copy_keeps_only_saved_dashboard_limits() -> None:
     assert "the oldest is replaced when a fourth is saved" in text
 
 
+def test_results_css_hides_gradio_empty_file_placeholders() -> None:
+    """A dashboard-only result must not show empty File-output document icons."""
+    assert '#download-row > .block:has(.empty[aria-label="Empty value"])' in app.APP_CSS
+    assert "#review-workbooks-download .empty" in app.APP_CSS
+
+
 def test_complete_run_archive_name_identifies_run_and_creation_time() -> None:
     created_at = datetime(2026, 8, 12, 13, 4, 5, tzinfo=timezone.utc)
 

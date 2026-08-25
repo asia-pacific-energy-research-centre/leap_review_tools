@@ -2,6 +2,10 @@
 
 ## Completed
 
+- 2026-08-25: Hide Gradio 5 empty download placeholders in Results, and pass
+  Version 1 / Version 2 progress plus cancellation through each sequential
+  renderer so a long comparison identifies its active half and can stop at the
+  renderer's safe cancellation boundaries.
 - 2026-08-25: Apply Version 1 / Version 2 overlays to renderer aggregates named
   without the literal word `Total`, and offer a self-contained dashboard/data
   ZIP independently of the workbook-oriented complete-run archive.

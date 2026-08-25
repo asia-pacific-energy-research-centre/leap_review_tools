@@ -122,11 +122,12 @@ def test_version_pair_uses_isolated_roots_and_preserves_version_1(
     original = ExportUpload(original_file, "01_AUS", "Target", (2022, 2060))
     new = ExportUpload(new_file, "01_AUS", "Target", (2022, 2060))
     calls = []
+    progress_messages = []
     original_sentinel: Path | None = None
 
     def fake_render(*, context, trace_only, **kwargs):
         nonlocal original_sentinel
-        calls.append((context.output_root, trace_only))
+        calls.append((context.output_root, trace_only, kwargs.get("cancellation_check")))
         rendered_root = context.output_root / "rendered"
         (rendered_root / "chart_bundles").mkdir(parents=True)
         if trace_only:
@@ -167,11 +168,18 @@ def test_version_pair_uses_isolated_roots_and_preserves_version_1(
         max_year=2060,
         green_percent=1,
         yellow_percent=5,
+        progress=progress_messages.append,
+        cancellation_check=lambda: False,
     )
 
     assert outcome.ok
     assert counts == {"green": 1, "yellow": 0, "red": 0}
-    assert [trace_only for _, trace_only in calls] == [True, False]
+    assert [trace_only for _, trace_only, _ in calls] == [True, False]
+    assert all(call[2] is not None for call in calls)
+    assert progress_messages == [
+        "Rendering Version 1 (comparison traces).",
+        "Rendering Version 2 (full dashboard).",
+    ]
     assert calls[0][0] != calls[1][0]
     assert seen_roots[0] != seen_roots[1]
     assert original_sentinel is not None and original_sentinel.read_text() == "version-1"

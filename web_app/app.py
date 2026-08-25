@@ -1062,7 +1062,15 @@ body.run-active #download-row, body.run-active #output { opacity: 0.5; }
   border-radius: 4px; background: #fdf4f3; }
 /* Output file fields never receive an upload, so their dropzone is dead space. */
 #results-card .file-preview { min-height: 0 !important; }
-#results-card:not(:has(.file-preview)) #download-row { display: none !important; }
+/* Gradio 5 renders an empty File output as a large document icon rather than
+   omitting its preview. Hide each empty output independently: a dashboard-only
+   run should show its archive, not two empty workbook/archive placeholders. */
+#download-row > .block:has(.empty[aria-label="Empty value"]) { display: none !important; }
+/* No link and all three downloads empty means there is no result yet. The
+   explicit output ids avoid depending on Gradio's generated component ids. */
+#results-card:not(:has(#result-links .result-links)):has(#review-workbooks-download .empty[aria-label="Empty value"]):has(#dashboard-download .empty[aria-label="Empty value"]):has(#diagnostics-bundle .empty[aria-label="Empty value"]) {
+  display: none !important;
+}
 #results-card:has(.file-preview) #results-empty { display: none; }
 #download-row .block > button { display: none !important; }
 #download-row .block {
@@ -3561,11 +3569,18 @@ def _run_version_comparison_pair(
     max_year: int,
     green_percent: float,
     yellow_percent: float,
+    progress: object = None,
+    cancellation_check: object = None,
 ) -> tuple[object, dict[str, int], dict[str, float]]:
     """Render isolated version roots, then overlay Version 1 onto Version 2."""
     outcomes: dict[str, object] = {}
     elapsed: dict[str, float] = {}
     for role, upload in (("original", original_upload), ("new", new_upload)):
+        _raise_if_cancelled(cancellation_check)
+        if callable(progress):
+            version_label = "Version 1" if role == "original" else "Version 2"
+            mode = "comparison traces" if role == "original" else "full dashboard"
+            progress(f"Rendering {version_label} ({mode}).")
         role_directory = run_root / "version_exports" / role
         role_directory.mkdir(parents=True, exist_ok=True)
         _copy_input(upload.path, role_directory)
@@ -3586,8 +3601,10 @@ def _run_version_comparison_pair(
             max_year=max_year,
             run_label=f"web-version-{role}",
             trace_only=role == "original",
+            cancellation_check=cancellation_check,
         )
         elapsed[role] = time.perf_counter() - started
+        _raise_if_cancelled(cancellation_check)
 
     original_outcome = outcomes["original"]
     new_outcome = outcomes["new"]
@@ -3838,6 +3855,8 @@ def build_review_from_export(
                             max_year=dashboard_max_year_value,
                             green_percent=green_percent_value,
                             yellow_percent=yellow_percent_value,
+                            progress=progress,
+                            cancellation_check=cancellation_check,
                         )
                     else:
                         outcome = developer_launcher.run_dashboard_from_export(
@@ -4748,6 +4767,7 @@ def create_app():
                 output = gr.File(
                     label="Review workbook(s)",
                     file_count="multiple",
+                    elem_id="review-workbooks-download",
                 )
                 dashboard_download = gr.File(
                     label="Dashboard archive (.zip)",
