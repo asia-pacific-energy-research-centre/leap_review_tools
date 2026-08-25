@@ -7,7 +7,7 @@ sdk: gradio
 sdk_version: 5.44.1
 app_file: app.py
 short_description: Review LEAP balance exports and compare dashboards.
-pinned: false
+pinned: true
 ---
 
 # LEAP Balance Review
