@@ -266,6 +266,34 @@ series: what LEAP produced, what ESTO recorded, and what the 9th Outlook
 projects. Historical years compare against ESTO; projection years compare against
 the 9th. You can click series names in the legend to hide or show them.
 
+## How dashboard charts are grouped
+
+The dashboard deliberately shows the same data at a few useful levels, but it
+does not repeat a chart when that would add no information. First, each page
+has an **Overview** area. Its aggregate charts show a whole page or named
+section, usually by product and, where useful, by flow. Beneath that are the
+individual sections and their fuel/product charts.
+
+For a section containing two or more effective Common ESTO flows, the dashboard
+also adds an **Aggregate by product** chart for each flow. For example, Other
+transformation contains several processes, so `09.06 Gas processing plants`
+gets its own product stack. A flow with several source sub-flows can also get
+an **Aggregate by sub-flow** chart.
+
+Before counting flows, the dashboard chooses a non-overlapping hierarchy
+frontier: it keeps either a parent flow or its children for a source, never
+both. This prevents totals being double counted. A by-flow aggregate is omitted
+when only one effective flow remains, because it would be a single band equal
+to the total. This is not based on whether a similar chart was drawn earlier.
+
+Other transformation has a small explicit presentation rule because it mixes
+processes, transfers, own use and losses. Transfers is one effective flow
+(`08 Transfers`), so it has one **Aggregate by product: Transfers** card in
+the page Overview and then its individual product charts. It does not get an
+identical one-band aggregate-by-flow card or a duplicate flow-level product
+card below. The other transformation processes have multiple effective flows,
+so their flow-level product summaries are shown.
+
 Some sector pages may be missing. That is deliberate: if LEAP has no separately
 modelled detail for a sector in that economy, a page would be misleading, so it
 is left out. The run tells you which ones and why.
