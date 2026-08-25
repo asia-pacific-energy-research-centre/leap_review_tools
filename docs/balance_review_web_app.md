@@ -42,6 +42,14 @@ both the balance-table review and dashboard. The dashboard uses the latest year
 in that ESTO dataset as its base year. Dashboard year bounds remain internal
 workflow defaults rather than user-facing controls.
 
+Detailed dashboard cards can include a collapsed **Known coverage gap** note.
+It appears only when the enabled baseline-seed exception ledger applies to the
+selected economy and branch, and that branch/fuel is non-zero in the selected
+ESTO release or the Ninth Reference projection. Disabled rows and exceptions
+without an economy-specific applicability record are not shown. The note is
+mapped through the reviewed LEAP-to-Common ESTO relationships, so it appears on
+the relevant branch/fuel card rather than as a page-wide warning.
+
 The embedded dashboard is intentionally a single-run view. Its generated
 economy selector and Reference/Target toggle are hidden, and the submitted
 economy/scenario are shown in a fixed banner. The downloadable archive retains
