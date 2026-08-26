@@ -138,6 +138,7 @@ def test_diagnostics_bundle_contains_workbooks_diagnostics_dashboard_and_logs(
             "dashboard/dashboards/page.html",
             "dashboard/chart_bundles/page.js",
             "dashboard/OPEN THE DASHBOARD.html",
+            "dashboard/assets/plotly.min.js",
             "logs/run.log",
         }
 
@@ -152,7 +153,9 @@ def test_dashboard_bundle_contains_only_self_contained_dashboard_files(
     dashboards.mkdir(parents=True)
     chart_bundles.mkdir()
     supporting_files.mkdir()
-    (dashboards / "energy_balance_overview.html").write_text("<html>dashboard</html>")
+    (dashboards / "energy_balance_overview.html").write_text(
+        '<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>'
+    )
     (chart_bundles / "energy_balance_overview.js").write_text("window.DATA={};")
     (supporting_files / "chart_manifest.json").write_text("{}")
     (dashboard_root / "OPEN THE DASHBOARD.html").write_text(
@@ -172,7 +175,13 @@ def test_dashboard_bundle_contains_only_self_contained_dashboard_files(
             "dashboard/chart_bundles/energy_balance_overview.js",
             "dashboard/supporting_files/chart_manifest.json",
             "dashboard/OPEN THE DASHBOARD.html",
+            "dashboard/assets/plotly.min.js",
         }
+        page_html = archive.read(
+            "dashboard/dashboards/energy_balance_overview.html"
+        ).decode("utf-8")
+        assert "https://cdn.plot.ly" not in page_html
+        assert 'src="../../assets/plotly.min.js"' in page_html
 
 
 def test_single_scenario_dashboard_is_pinned_and_loses_its_toggle():

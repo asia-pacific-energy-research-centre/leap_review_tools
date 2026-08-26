@@ -71,6 +71,9 @@ SOURCE_PARENT = Path(os.getenv("LEAP_SOURCE_PARENT", str(REPO_ROOT.parent)))
 TOKYO_TIMEZONE = timezone(timedelta(hours=9), name="JST")
 VERSION_COMPARISON_GREEN_PERCENT = 0.1
 VERSION_COMPARISON_YELLOW_PERCENT = 5.0
+PLOTLY_CDN_URL = "https://cdn.plot.ly/plotly-2.35.2.min.js"
+PLOTLY_ARCHIVE_PATH = "dashboard/assets/plotly.min.js"
+PLOTLY_ARCHIVE_PAGE_URL = "../../assets/plotly.min.js"
 
 
 def _as_tokyo_time(value: datetime) -> datetime:
@@ -2115,9 +2118,21 @@ def _write_diagnostics_bundle(
 
 
 def _add_dashboard_files(bundle: zipfile.ZipFile, dashboard_directory: Path) -> None:
-    """Add the pages and data required to open a dashboard after extraction."""
+    """Add an offline-capable dashboard and its data to an archive."""
     if not dashboard_directory.is_dir():
         return
+
+    plotly_bundle = _plotly_offline_bundle_path()
+
+    def add_dashboard_file(path: Path, arcname: str) -> None:
+        """Write dashboard pages with their external Plotly dependency localised."""
+        if path.suffix.casefold() != ".html":
+            bundle.write(path, arcname=arcname)
+            return
+        page_html = path.read_text(encoding="utf-8")
+        page_html = page_html.replace(PLOTLY_CDN_URL, PLOTLY_ARCHIVE_PAGE_URL)
+        bundle.writestr(arcname, page_html.encode("utf-8"))
+
     bundle_root = _dashboard_bundle_root(dashboard_directory)
     if bundle_root != dashboard_directory.parent:
         for path in sorted(bundle_root.rglob("*")):
@@ -2126,10 +2141,10 @@ def _add_dashboard_files(bundle: zipfile.ZipFile, dashboard_directory: Path) -> 
                 "run_manifest.txt",
                 "validation_report.txt",
             }:
-                bundle.write(
-                    path,
-                    arcname=f"dashboard/{path.relative_to(bundle_root)}",
+                add_dashboard_file(
+                    path, arcname=f"dashboard/{path.relative_to(bundle_root)}"
                 )
+        bundle.write(plotly_bundle, arcname=PLOTLY_ARCHIVE_PATH)
         return
 
     # Dashboard pages refer to chart bundles with ../chart_bundles/. Keep that
@@ -2143,7 +2158,7 @@ def _add_dashboard_files(bundle: zipfile.ZipFile, dashboard_directory: Path) -> 
         supporting_directory = dashboard_root / "supporting_files"
     for path in sorted(dashboard_directory.rglob("*")):
         if path.is_file():
-            bundle.write(
+            add_dashboard_file(
                 path,
                 arcname=f"dashboard/dashboards/{path.relative_to(dashboard_directory)}",
             )
@@ -2167,6 +2182,20 @@ def _add_dashboard_files(bundle: zipfile.ZipFile, dashboard_directory: Path) -> 
     shortcut = dashboard_root / "OPEN THE DASHBOARD.html"
     if shortcut.is_file():
         bundle.write(shortcut, arcname="dashboard/OPEN THE DASHBOARD.html")
+    bundle.write(plotly_bundle, arcname=PLOTLY_ARCHIVE_PATH)
+
+
+def _plotly_offline_bundle_path() -> Path:
+    """Return Plotly's installed browser runtime for offline dashboard archives."""
+    import plotly
+
+    bundle_path = Path(plotly.__file__).parent / "package_data" / "plotly.min.js"
+    if not bundle_path.is_file():
+        raise FileNotFoundError(
+            "The installed Plotly package does not include plotly.min.js, "
+            "which is required to create an offline dashboard archive."
+        )
+    return bundle_path
 
 
 def _write_dashboard_bundle(
