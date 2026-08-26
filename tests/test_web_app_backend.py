@@ -93,6 +93,8 @@ def test_diagnostics_bundle_contains_workbooks_diagnostics_dashboard_and_logs(
 ) -> None:
     workbook = tmp_path / "review.xlsx"
     workbook.write_bytes(b"workbook")
+    uploaded_export = tmp_path / "05_PRC_Target.xlsx"
+    uploaded_export.write_bytes(b"source export")
     diagnostics = tmp_path / "diagnostics"
     diagnostics.mkdir()
     (diagnostics / "leap_balance_source_review.csv").write_text("a,b\n1,2\n")
@@ -125,10 +127,12 @@ def test_diagnostics_bundle_contains_workbooks_diagnostics_dashboard_and_logs(
         run_directory=run_directory,
         dashboard_directory=dashboards,
         log_directory=logs,
+        uploaded_export_paths=[uploaded_export],
     )
 
     with zipfile.ZipFile(bundle) as archive:
         assert set(archive.namelist()) == {
+            "uploaded_balance_exports/05_PRC_Target.xlsx",
             "workbooks/review.xlsx",
             "diagnostics/leap_balance_source_review.csv",
             "diagnostics/leap_export_readiness_findings.parquet",
@@ -143,7 +147,7 @@ def test_diagnostics_bundle_contains_workbooks_diagnostics_dashboard_and_logs(
         }
 
 
-def test_dashboard_bundle_contains_only_self_contained_dashboard_files(
+def test_dashboard_bundle_contains_dashboard_and_uploaded_balance_exports(
     tmp_path: Path,
 ) -> None:
     dashboard_root = tmp_path / "dashboard"
@@ -162,21 +166,31 @@ def test_dashboard_bundle_contains_only_self_contained_dashboard_files(
         '<meta http-equiv="refresh" content="0; url=dashboards/energy_balance_overview.html">'
     )
     (tmp_path / "review.xlsx").write_bytes(b"not part of the dashboard")
+    uploaded_export = tmp_path / "05_PRC_Target.xlsx"
+    duplicate_name_export = tmp_path / "other" / "05_PRC_Target.xlsx"
+    duplicate_name_export.parent.mkdir()
+    uploaded_export.write_bytes(b"first export")
+    duplicate_name_export.write_bytes(b"second export")
     archive_path = tmp_path / "dashboard.zip"
 
     _write_dashboard_bundle(
         bundle_path=archive_path,
         dashboard_directory=dashboards,
+        uploaded_export_paths=[uploaded_export, duplicate_name_export, uploaded_export],
     )
 
     with zipfile.ZipFile(archive_path) as archive:
         assert set(archive.namelist()) == {
+            "uploaded_balance_exports/05_PRC_Target.xlsx",
+            "uploaded_balance_exports/05_PRC_Target_2.xlsx",
             "dashboard/dashboards/energy_balance_overview.html",
             "dashboard/chart_bundles/energy_balance_overview.js",
             "dashboard/supporting_files/chart_manifest.json",
             "dashboard/OPEN THE DASHBOARD.html",
             "dashboard/assets/plotly.min.js",
         }
+        assert archive.read("uploaded_balance_exports/05_PRC_Target.xlsx") == b"first export"
+        assert archive.read("uploaded_balance_exports/05_PRC_Target_2.xlsx") == b"second export"
         page_html = archive.read(
             "dashboard/dashboards/energy_balance_overview.html"
         ).decode("utf-8")

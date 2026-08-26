@@ -2091,9 +2091,11 @@ def _write_diagnostics_bundle(
     run_directory: Path,
     dashboard_directory: Path | None = None,
     log_directory: Path | None = None,
+    uploaded_export_paths: list[Path] | None = None,
 ) -> None:
-    """Package derived diagnostics, workbooks, and a self-contained dashboard."""
+    """Package source exports, derived diagnostics, and a self-contained dashboard."""
     with zipfile.ZipFile(bundle_path, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+        _add_uploaded_exports(bundle, uploaded_export_paths or [])
         for workbook_path in workbook_paths:
             bundle.write(workbook_path, arcname=f"workbooks/{workbook_path.name}")
         if diagnostics_directory.is_dir():
@@ -2198,11 +2200,36 @@ def _plotly_offline_bundle_path() -> Path:
     return bundle_path
 
 
+def _add_uploaded_exports(bundle: zipfile.ZipFile, uploaded_export_paths: list[Path]) -> None:
+    """Add each source balance export once, retaining a usable original filename."""
+    written_names: set[str] = set()
+    seen_paths: set[Path] = set()
+    for export_path in uploaded_export_paths:
+        export_path = Path(export_path)
+        resolved_path = export_path.resolve()
+        if resolved_path in seen_paths or not export_path.is_file():
+            continue
+        seen_paths.add(resolved_path)
+        filename = export_path.name
+        suffix = export_path.suffix
+        stem = export_path.stem
+        number = 2
+        while filename.casefold() in written_names:
+            filename = f"{stem}_{number}{suffix}"
+            number += 1
+        written_names.add(filename.casefold())
+        bundle.write(export_path, arcname=f"uploaded_balance_exports/{filename}")
+
+
 def _write_dashboard_bundle(
-    *, bundle_path: Path, dashboard_directory: Path
+    *,
+    bundle_path: Path,
+    dashboard_directory: Path,
+    uploaded_export_paths: list[Path] | None = None,
 ) -> None:
-    """Write a dashboard-only archive without workbooks, logs, or run inputs."""
+    """Write an offline dashboard archive with its uploaded balance exports."""
     with zipfile.ZipFile(bundle_path, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+        _add_uploaded_exports(bundle, uploaded_export_paths or [])
         _add_dashboard_files(bundle, dashboard_directory)
 
 
@@ -3941,6 +3968,9 @@ def build_review_from_export(
         persistent_workbooks: list[Path] = []
         persistent_bundle = None
         persistent_dashboard_bundle = None
+        # Preserve every valid source file the visitor supplied, including
+        # other selected economies or both versions of a comparison.
+        uploaded_export_paths = [upload.path for upload in readable]
         _raise_if_cancelled(cancellation_check)
         persistent_dir: Path | None = None
         if (wants_workbook and result is not None) or dashboard_directory is not None:
@@ -3963,6 +3993,7 @@ def build_review_from_export(
                 run_directory=result.run_directory,
                 dashboard_directory=dashboard_directory,
                 log_directory=run_root / "logs",
+                uploaded_export_paths=uploaded_export_paths,
             )
         if dashboard_directory is not None and persistent_dir is not None:
             persistent_dashboard_bundle = persistent_dir / _dashboard_archive_name(
@@ -3972,6 +4003,7 @@ def build_review_from_export(
             _write_dashboard_bundle(
                 bundle_path=persistent_dashboard_bundle,
                 dashboard_directory=dashboard_directory,
+                uploaded_export_paths=uploaded_export_paths,
             )
 
         # Each rendered economy gets its own snapshot and its own link.
