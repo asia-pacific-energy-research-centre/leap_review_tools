@@ -2636,23 +2636,23 @@ def _calculator_html(
         if want_dashboard
         else "workbook"
     )
-    estimate, _ = estimate_runtime(profile, process_group=group, years=years)
-    if version_comparison and want_dashboard:
-        trace_estimate, _ = estimate_runtime(
-            profile, process_group="dashboard_trace_only", years=years
-        )
-        estimate = (
-            estimate + trace_estimate
-            if estimate is not None and trace_estimate is not None
-            else None
-        )
-    if estimate and want_dashboard and economies > 1:
-        dashboard_only, _ = estimate_runtime(profile, process_group="dashboard")
-        estimate += (dashboard_only or 0) * (economies - 1)
+    estimate, _ = estimate_runtime(
+        profile,
+        process_group=group,
+        years=years,
+        economies=economies,
+        version_comparison=version_comparison,
+    )
     expected = f' data-expected="{int(estimate)}"' if estimate else ""
     # How many measurements the estimate rests on, so the page can name what it
     # is comparing against rather than implying something has gone wrong.
-    samples = samples_behind_estimate(profile, process_group=group, years=years)
+    samples = samples_behind_estimate(
+        profile,
+        process_group=group,
+        years=years,
+        economies=economies,
+        version_comparison=version_comparison,
+    )
     expected += f' data-samples="{samples}"'
     return (
         f'<div id="calculator-animation" role="status" aria-live="polite"{expected}>'
@@ -2987,7 +2987,12 @@ def _hosted_runtime_profile() -> dict[str, object]:
 
 
 def _save_runtime_sample(
-    process_group: str, elapsed_seconds: float, years: int | None = None
+    process_group: str,
+    elapsed_seconds: float,
+    years: int | None = None,
+    *,
+    economies: int = 1,
+    version_comparison: bool = False,
 ) -> None:
     """Fold one measured run into the profile the interface quotes.
 
@@ -3008,6 +3013,8 @@ def _save_runtime_sample(
             process_group=process_group,
             elapsed_seconds=elapsed_seconds,
             years=years,
+            economies=economies,
+            version_comparison=version_comparison,
         )
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(updated, indent=2), encoding="utf-8")
@@ -4073,33 +4080,39 @@ def build_review_from_export(
         # Only successful runs are recorded, so a failure cannot drag the
         # quoted duration around.
         year_count = len(requested_years) or None
-        # The dashboard clock covers every economy rendered, but the quote
-        # multiplies its average by the economy count. Recording the total
-        # would count them twice, so what is stored is the cost of one.
+        # Keep the measured dashboard total together with its rendered economy
+        # count. The estimator matches that exact shape instead of treating a
+        # one-economy run as evidence for a multi-economy run.
         rendered_count = max(len([d for d in dashboards if not d.get("error")]), 1)
         for group, measured in runtime_seconds.items():
             if measured is None:
                 continue
             if group in {"version_1_trace_only", "version_2_full"}:
                 continue
-            if group == "dashboard" and is_version_comparison:
-                # The comparison total contains two different render modes;
-                # storing it as one ordinary dashboard would double-count it
-                # when the UI composes the two measured components.
-                continue
-            if group == "dashboard":
-                measured = round(measured / rendered_count, 1)
             # "full run" means both halves; recording a workbook-only or
             # dashboard-only run against it would understate the real total.
             if group == "full_run" and not (wants_workbook and wants_dashboard):
                 continue
-            _save_runtime_sample(group, measured, years=year_count)
+            _save_runtime_sample(
+                group,
+                measured,
+                years=year_count,
+                economies=(
+                    rendered_count if group in {"dashboard", "full_run"} else 1
+                ),
+                version_comparison=is_version_comparison,
+            )
         if is_version_comparison and comparison_role_seconds:
             _save_runtime_sample(
                 "dashboard_trace_only",
                 comparison_role_seconds["original"],
+                version_comparison=True,
             )
-            _save_runtime_sample("dashboard", comparison_role_seconds["new"])
+            _save_runtime_sample(
+                "dashboard_version_2_full",
+                comparison_role_seconds["new"],
+                version_comparison=True,
+            )
         summary = {
             "status": "succeeded",
             "source_commit": _source_commit(),

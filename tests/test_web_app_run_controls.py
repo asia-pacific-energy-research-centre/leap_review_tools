@@ -7,7 +7,11 @@ from pathlib import Path
 import pytest
 
 from web_app import app
-from web_app.runtime_profile import empty_runtime_profile, record_runtime_sample
+from web_app.runtime_profile import (
+    empty_runtime_profile,
+    load_runtime_profile,
+    record_runtime_sample,
+)
 
 
 def test_browser_does_not_derive_readiness_from_replaced_file_input() -> None:
@@ -42,13 +46,9 @@ def test_runtime_update_enables_run_from_server_upload_state(monkeypatch) -> Non
 def test_runtime_update_uses_version_comparison_copy(monkeypatch) -> None:
     profile = record_runtime_sample(
         empty_runtime_profile(),
-        process_group="dashboard_trace_only",
-        elapsed_seconds=120,
-    )
-    profile = record_runtime_sample(
-        profile,
         process_group="dashboard",
-        elapsed_seconds=480,
+        elapsed_seconds=600,
+        version_comparison=True,
     )
     monkeypatch.setattr(app, "_hosted_runtime_profile", lambda: profile)
     monkeypatch.setattr(app, "_uploaded_paths", lambda value: [Path("export.xlsx")])
@@ -60,8 +60,25 @@ def test_runtime_update_uses_version_comparison_copy(monkeypatch) -> None:
     )
 
     assert "Version 1 / Version 2 comparison" in dashboard_note
-    assert "trace-only Version 1" in dashboard_note
+    assert "complete two-version dashboard comparison" in dashboard_note
     assert 'data-expected="600"' in calculator
+
+
+def test_app_runtime_writer_preserves_exact_run_shape(monkeypatch, tmp_path) -> None:
+    profile_path = tmp_path / "runtime-profile.json"
+    monkeypatch.setenv("LEAP_RUNTIME_PROFILE_PATH", str(profile_path))
+
+    app._save_runtime_sample(
+        "dashboard",
+        840,
+        economies=2,
+        version_comparison=True,
+    )
+
+    profile = load_runtime_profile(profile_path)
+    assert profile["samples_seconds"]["dashboard"] == [840.0]
+    assert profile["samples_economies"]["dashboard"] == [2]
+    assert profile["samples_run_kinds"]["dashboard"] == ["version_comparison"]
 
 
 def test_prepare_run_resets_upload_lost_during_space_restart(tmp_path) -> None:

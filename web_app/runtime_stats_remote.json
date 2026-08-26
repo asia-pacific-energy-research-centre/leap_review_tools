@@ -1,9 +1,9 @@
 {
-  "schema_version": 2,
-  "sample_limit": 25,
-  "updated_at": "2026-08-24T03:46:06.537642+00:00",
+  "schema_version": 3,
+  "sample_limit": 100,
+  "updated_at": "2026-08-25T08:02:06.083860+00:00",
   "source": "local_seed",
-  "note": "Seeded from local runs on 01_AUS Target 2022 so a freshly built Space can quote a duration before measuring anything itself. Workbook samples cover 1, 2 and 3 review years so a per-year cost can be separated from fixed overhead. Hosted runs replace these five at a time.",
+  "note": "Seeded from local runs on 01_AUS Target 2022. New hosted measurements retain the economy count and distinguish standard dashboards from two-version comparisons. Legacy dashboard and full-run samples remain in the file for audit but are not used for shape-specific estimates.",
   "samples_seconds": {
     "workbook": [
       207.6,
@@ -18,12 +18,14 @@
       1220.9,
       1029.7,
       796.1,
-      931.4
+      931.4,
+      785.4
     ],
     "dashboard_trace_only": [
       554.0,
       722.5
     ],
+    "dashboard_version_2_full": [],
     "full_run": [
       425.3,
       1406.7
@@ -43,21 +45,84 @@
       2,
       null,
       null,
+      null,
       null
     ],
     "dashboard_trace_only": [
       null,
       null
     ],
+    "dashboard_version_2_full": [],
     "full_run": [
       1,
       2
     ]
   },
+  "samples_economies": {
+    "workbook": [
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "dashboard": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "dashboard_trace_only": [
+      1,
+      1
+    ],
+    "dashboard_version_2_full": [],
+    "full_run": [
+      1,
+      1
+    ]
+  },
+  "samples_run_kinds": {
+    "workbook": [
+      "standard",
+      "standard",
+      "standard",
+      "standard",
+      "standard"
+    ],
+    "dashboard": [
+      "legacy_unknown",
+      "legacy_unknown",
+      "legacy_unknown",
+      "legacy_unknown",
+      "legacy_unknown",
+      "legacy_unknown",
+      "legacy_unknown"
+    ],
+    "dashboard_trace_only": [
+      "version_comparison",
+      "version_comparison"
+    ],
+    "dashboard_version_2_full": [],
+    "full_run": [
+      "legacy_unknown",
+      "legacy_unknown"
+    ]
+  },
   "averages_seconds": {
     "workbook": 201.8,
-    "dashboard": 752.3,
+    "dashboard": 757.1,
     "dashboard_trace_only": 638.2,
+    "dashboard_version_2_full": null,
     "full_run": 916.0
+  },
+  "outlier_policy": {
+    "method": "median_absolute_deviation",
+    "minimum_comparable_samples": 8,
+    "threshold": 3.5,
+    "mad_floor_ratio": 0.01
   }
 }

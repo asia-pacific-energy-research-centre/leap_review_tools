@@ -2,6 +2,11 @@
 
 ## Completed
 
+- 2026-08-26: Expand hosted runtime timing history to 100 measurements per
+  process group, retain exact economy-count and standard/two-version run-shape
+  metadata, keep Version 1 trace-only and Version 2 full component timings
+  separate, and exclude median-deviation outliers only after eight comparable
+  measurements exist.
 - 2026-08-25: Hide Gradio 5 empty download placeholders in Results, and pass
   Version 1 / Version 2 progress plus cancellation through each sequential
   renderer so a long comparison identifies its active half and can stop at the

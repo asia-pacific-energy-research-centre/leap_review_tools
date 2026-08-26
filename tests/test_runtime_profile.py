@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
+
 from web_app.runtime_profile import (
+    OUTLIER_MIN_SAMPLES,
     SAMPLE_LIMIT,
-    estimate_runtime,
     empty_runtime_profile,
+    estimate_runtime,
     format_runtime_note,
+    load_runtime_profile,
     record_runtime_sample,
 )
 
@@ -38,16 +42,48 @@ def test_runtime_profile_does_not_mix_process_groups() -> None:
     assert profile["averages_seconds"]["full_run"] is None
 
 
-def test_version_comparison_runtime_composes_trace_only_and_full_timings() -> None:
+def test_runtime_profile_records_parallel_run_shape_metadata() -> None:
     profile = record_runtime_sample(
         empty_runtime_profile(),
-        process_group="dashboard_trace_only",
-        elapsed_seconds=120,
-    )
-    profile = record_runtime_sample(
-        profile,
         process_group="dashboard",
-        elapsed_seconds=480,
+        elapsed_seconds=720,
+        economies=2,
+        version_comparison=True,
+    )
+
+    assert profile["samples_economies"]["dashboard"] == [2]
+    assert profile["samples_run_kinds"]["dashboard"] == ["version_comparison"]
+    assert profile["samples_years"]["dashboard"] == [None]
+
+
+def test_schema_two_dashboard_history_is_not_assumed_to_be_standard(tmp_path) -> None:
+    profile_path = tmp_path / "runtime.json"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "samples_seconds": {"dashboard": [300, 600]},
+                "samples_years": {"dashboard": [None, None]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    profile = load_runtime_profile(profile_path)
+
+    assert profile["samples_run_kinds"]["dashboard"] == [
+        "legacy_unknown",
+        "legacy_unknown",
+    ]
+    assert estimate_runtime(profile, process_group="dashboard")[0] is None
+
+
+def test_version_comparison_runtime_uses_complete_matching_run() -> None:
+    profile = record_runtime_sample(
+        empty_runtime_profile(),
+        process_group="dashboard",
+        elapsed_seconds=600,
+        version_comparison=True,
     )
 
     note = format_runtime_note(
@@ -58,8 +94,80 @@ def test_version_comparison_runtime_composes_trace_only_and_full_timings() -> No
 
     assert "Version 1 / Version 2 comparison" in note
     assert "10 min 00 sec" in note
-    assert "trace-only Version 1 plus the full Version 2 dashboard" in note
-    assert "extra economy adds about 10 min 00 sec" in note
+    assert "complete two-version dashboard comparison" in note
+    assert "Different economy counts are measured separately" in note
+
+
+def test_dashboard_estimates_match_economy_count_and_run_kind() -> None:
+    profile = empty_runtime_profile()
+    for seconds, economies, comparison in (
+        (300, 1, False),
+        (520, 2, False),
+        (640, 1, True),
+    ):
+        profile = record_runtime_sample(
+            profile,
+            process_group="dashboard",
+            elapsed_seconds=seconds,
+            economies=economies,
+            version_comparison=comparison,
+        )
+
+    assert estimate_runtime(
+        profile, process_group="dashboard", economies=1
+    )[0] == 300.0
+    assert estimate_runtime(
+        profile, process_group="dashboard", economies=2
+    )[0] == 520.0
+    assert estimate_runtime(
+        profile,
+        process_group="dashboard",
+        economies=1,
+        version_comparison=True,
+    )[0] == 640.0
+    assert estimate_runtime(
+        profile,
+        process_group="dashboard",
+        economies=2,
+        version_comparison=True,
+    )[0] is None
+
+
+def test_outlier_filter_activates_only_after_enough_comparable_runs() -> None:
+    profile = empty_runtime_profile()
+    normal_values = [98, 99, 100, 101, 102, 100, 99]
+    for value in normal_values + [1000]:
+        profile = record_runtime_sample(
+            profile,
+            process_group="dashboard",
+            elapsed_seconds=value,
+        )
+
+    assert OUTLIER_MIN_SAMPLES == 8
+    estimate, _ = estimate_runtime(profile, process_group="dashboard")
+    assert estimate == sum(normal_values) / len(normal_values)
+
+    small_profile = empty_runtime_profile()
+    for value in [98, 99, 100, 101, 102, 1000, 99]:
+        small_profile = record_runtime_sample(
+            small_profile,
+            process_group="dashboard",
+            elapsed_seconds=value,
+        )
+    estimate, _ = estimate_runtime(small_profile, process_group="dashboard")
+    assert estimate == sum([98, 99, 100, 101, 102, 1000, 99]) / 7
+
+
+def test_outlier_filter_handles_zero_median_deviation() -> None:
+    profile = empty_runtime_profile()
+    for value in [100] * 7 + [1000]:
+        profile = record_runtime_sample(
+            profile,
+            process_group="dashboard",
+            elapsed_seconds=value,
+        )
+
+    assert estimate_runtime(profile, process_group="dashboard")[0] == 100.0
 
 
 def test_runtime_note_identifies_hugging_face_source(monkeypatch) -> None:
@@ -114,18 +222,27 @@ def test_samples_behind_a_composed_full_run_estimate():
     """
     from web_app.runtime_profile import samples_behind_estimate
 
-    profile = {
-        "samples_seconds": {
-            "workbook": [200.0, 210.0, 230.0, 240.0],
-            "dashboard": [260.0, 275.0],
-            "full_run": [430.0],
-        },
-        "samples_years": {
-            "workbook": [1, 1, 2, 3],
-            "dashboard": [1, 1],
-            "full_run": [1],
-        },
-    }
+    profile = empty_runtime_profile()
+    profile["samples_seconds"].update({
+        "workbook": [200.0, 210.0, 230.0, 240.0],
+        "dashboard": [260.0, 275.0],
+        "full_run": [430.0],
+    })
+    profile["samples_years"].update({
+        "workbook": [1, 1, 2, 3],
+        "dashboard": [1, 1],
+        "full_run": [1],
+    })
+    profile["samples_economies"].update({
+        "workbook": [1, 1, 1, 1],
+        "dashboard": [1, 1],
+        "full_run": [1],
+    })
+    profile["samples_run_kinds"].update({
+        "workbook": ["standard"] * 4,
+        "dashboard": ["standard"] * 2,
+        "full_run": ["standard"],
+    })
 
     assert samples_behind_estimate(profile, process_group="workbook") == 4
     assert samples_behind_estimate(profile, process_group="dashboard") == 2
@@ -137,10 +254,11 @@ def test_samples_behind_a_directly_fitted_full_run_estimate():
     """With two year counts of its own, a full run is fitted from its samples."""
     from web_app.runtime_profile import samples_behind_estimate
 
-    profile = {
-        "samples_seconds": {"workbook": [], "dashboard": [], "full_run": [430.0, 470.0]},
-        "samples_years": {"workbook": [], "dashboard": [], "full_run": [1, 2]},
-    }
+    profile = empty_runtime_profile()
+    profile["samples_seconds"]["full_run"] = [430.0, 470.0]
+    profile["samples_years"]["full_run"] = [1, 2]
+    profile["samples_economies"]["full_run"] = [1, 1]
+    profile["samples_run_kinds"]["full_run"] = ["standard", "standard"]
 
     assert samples_behind_estimate(profile, process_group="full_run") == 2
 
