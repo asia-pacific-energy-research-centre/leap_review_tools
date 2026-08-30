@@ -2,6 +2,12 @@
 
 ## Completed
 
+- 2026-08-30: Add a repeatable ESTO-versus-LEAP base-year gap triage workflow
+  that compares exact plotted traces, excludes graph identities already covered
+  by a dummy detailed-sector baseline, assigns stable cross-run case IDs,
+  preserves reviewer decisions in a case registry, and emits standalone graphs
+  plus auditable candidate, exclusion, and coverage tables.
+
 - 2026-08-26: Expand hosted runtime timing history to 100 measurements per
   process group, retain exact economy-count and standard/two-version run-shape
   metadata, keep Version 1 trace-only and Version 2 full component timings
