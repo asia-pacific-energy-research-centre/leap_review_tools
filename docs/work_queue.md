@@ -2,13 +2,14 @@
 
 ## Completed
 
-- 2026-08-31: Investigate LEAP's single-CSV Energy Balance export path. Add a
-  fail-closed CSV parser that restores LEAP's stripped branch indentation only
-  from a row-for-row validated hierarchy template, and pass the optional
-  template through the portable dashboard mapping chain. The supplied CSV is
-  one Target/2022 table rather than an all-years replacement, so direct web
-  upload remains intentionally unavailable pending a hierarchy-bearing CSV
-  format or a maintained per-model hierarchy registry.
+- 2026-08-31: Investigate LEAP's CSV Energy Balance export paths. Add a
+  fail-closed parser for the Target/2022 fuel-column layout that restores
+  stripped branch indentation only from a validated hierarchy template. The
+  second 2022–2060 layout is the single `Fuels: All` total in two-decimal
+  Thousand PJ, so it is explicitly rejected: it lacks the dashboard's product
+  axis and rounds small detailed-road values to zero. Direct web upload remains
+  unavailable pending one CSV contract with hierarchy, individual fuels,
+  adequate precision, and all-year coverage.
 
 - 2026-08-31: Add a validation-only ESTO Extended overlay that preserves each
   historical placeholder total and allocates it to detailed structural leaves

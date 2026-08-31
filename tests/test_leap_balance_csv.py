@@ -69,6 +69,28 @@ def test_csv_without_hierarchy_fails_closed(tmp_path: Path) -> None:
     assert "cannot be reconstructed unambiguously" in result.stderr
 
 
+def test_all_years_fuel_aggregate_is_rejected_clearly(tmp_path: Path) -> None:
+    csv_path = tmp_path / "all_years.csv"
+    csv_path.write_text(
+        '"Energy Balance for Area AUS test model"\n'
+        '"Fuels: All, Scenario: Target, Units: Thousand Petajoule"\n'
+        '"",2022,2023,2024\n'
+        "Production,18.18,18.28,18.27\n",
+        encoding="utf-8",
+    )
+
+    result = _run_mapping_parser(
+        "from pathlib import Path; import sys; "
+        "from codebase.mapping_tools.parse_leap_balance_export import parse_leap_balance_csv; "
+        "parse_leap_balance_csv(Path(sys.argv[1]), economy_override='01_AUS')",
+        csv_path,
+    )
+
+    assert result.returncode != 0
+    assert "individual fuel/product axis" in result.stderr
+    assert "2022-2024" in result.stderr
+
+
 def test_csv_template_restores_dashboard_long_contract(tmp_path: Path) -> None:
     csv_path = tmp_path / "balance.csv"
     template_path = tmp_path / "hierarchy.csv"
