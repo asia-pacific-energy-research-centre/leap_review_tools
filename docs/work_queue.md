@@ -2,6 +2,13 @@
 
 ## Completed
 
+- 2026-09-01: Extend the all-years Australia validation fixture with explicit
+  detailed Electricity Generation and CHP process trees. Retain every expected
+  plant case, including zero-valued technologies, map each LEAP plant/fuel pair
+  once to the combined ESTO Extended all-producers boundary, and validate that
+  the two-source dashboard neither falls back to interim power placeholders nor
+  drops or duplicates nonzero power values.
+
 - 2026-08-31: Rebuild the all-years detailed AUS test fixture with Ninth Target
   product/year shares for the Services-versus-Residential split, populate
   Datacentres from 2023 using the Ninth `16.01.01` evidence, and keep every
