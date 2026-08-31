@@ -493,13 +493,13 @@ def write_index(
     output: Path,
     active_cases: list[dict[str, object]],
     coverage_cases: list[dict[str, object]],
+    parent_guardrails: list[dict[str, object]],
     *,
     year: int,
     baseline_applied: bool,
     excluded_count: int,
     coverage_count: int,
     no_fix_count: int,
-    parent_guardrail_count: int,
     out_of_scope_count: int,
 ) -> None:
     baseline_note = (
@@ -542,6 +542,25 @@ def write_index(
     coverage_table_body = "".join(coverage_rows) or (
         "<tr><td colspan='8'>No Extended-demand coverage cases.</td></tr>"
     )
+    parent_rows = []
+    for row in parent_guardrails:
+        percent = row["percent_difference_vs_esto"]
+        percent_text = "n/a" if percent is None else f"{float(percent):.1f}%"
+        parent_rows.append(
+            "<tr>"
+            f"<td>{html.escape(str(row['case_id']))}</td>"
+            f"<td>{html.escape(str(row['economy']))}</td>"
+            f"<td>{html.escape(str(row['page_label']))}</td>"
+            f"<td>{html.escape(str(row['common_flow_label']))}</td>"
+            f"<td>{float(row[f'esto_{year}_pj']):.2f}</td>"
+            f"<td>{float(row[f'leap_{year}_pj']):.2f}</td>"
+            f"<td class='num'>{float(row['difference_pj']):+.2f}</td>"
+            f"<td>{percent_text}</td>"
+            f"<td><a href='{html.escape(str(row['graph_file']))}'>Open graph</a></td></tr>"
+        )
+    parent_table_body = "".join(parent_rows) or (
+        "<tr><td colspan='9'>No replacement-parent guardrails exceeded the thresholds.</td></tr>"
+    )
     output.joinpath("index.html").write_text(
         "<!doctype html><html><head><meta charset='utf-8'><title>ESTO–LEAP issue queue</title>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
@@ -554,7 +573,7 @@ def write_index(
         f"<p class='note'>{len(active_cases)} active {year} Extended-only demand-leaf cases remain"
         f"{baseline_note}. "
         f"The audit tables contain {no_fix_count} production/import/export no-fix guardrails, "
-        f"{parent_guardrail_count} replacement-parent checks, {out_of_scope_count} ordinary balance "
+        f"{len(parent_guardrails)} replacement-parent checks, {out_of_scope_count} ordinary balance "
         f"differences, and {coverage_count} Extended-demand missing-source rows grouped into "
         f"{len(coverage_cases)} coverage cases. Case IDs remain stable across reruns when economy and "
         "graph identity are unchanged.</p><h2>Large numeric differences</h2><table><thead><tr>"
@@ -567,7 +586,14 @@ def write_index(
         "an issue-ranking measure across affected technology rows, not a conserved energy total.</p>"
         "<table><thead><tr><th>Coverage case</th><th>Priority</th><th>Economy</th><th>Product</th>"
         "<th>Missing rows</th><th>Summed row PJ</th><th>Largest row PJ</th><th>Affected flows</th>"
-        "</tr></thead><tbody>" + coverage_table_body + "</tbody></table></body></html>",
+        "</tr></thead><tbody>" + coverage_table_body + "</tbody></table>"
+        "<h2>Replacement-parent guardrails</h2>"
+        "<p class='note'>These aggregate checks are not leaf-level fix cases, but they show whether "
+        "the displayed detailed frontier still reconciles to the sector it replaced.</p>"
+        "<table><thead><tr><th>Guardrail</th><th>Economy</th><th>Page</th><th>Flow</th>"
+        f"<th>ESTO {year}</th><th>LEAP {year}</th><th>LEAP−ESTO PJ</th><th>% of ESTO</th>"
+        "<th>Graph</th></tr></thead><tbody>" + parent_table_body + "</tbody></table>"
+        "</body></html>",
         encoding="utf-8",
     )
 
@@ -756,6 +782,16 @@ def main() -> None:
         row["graph_file"] = f"graphs/{filename}"
         registry_row["graph_file"] = row["graph_file"]
         write_graph(graph_directory / filename, row, case_id, args.year)
+    for row in parent_guardrails:
+        guardrail_id = stable_case_id(row).replace("ELG-", "ELP-", 1)
+        filename = (
+            f"{guardrail_id}_{safe_token(row['page_key'])}_"
+            f"{safe_token(row['chart_key'])}.html"
+        )
+        row["case_id"] = guardrail_id
+        row["priority"] = priority_for(float(row["absolute_difference_pj"]))
+        row["graph_file"] = f"graphs/{filename}"
+        write_graph(graph_directory / filename, row, guardrail_id, args.year)
 
     write_rows_csv(output / "active_cases.csv", active)
     write_rows_csv(output / "case_registry.csv", registry)
@@ -772,12 +808,12 @@ def main() -> None:
         output,
         active,
         coverage_cases,
+        parent_guardrails,
         year=args.year,
         baseline_applied=args.baseline_cases is not None,
         excluded_count=len(excluded),
         coverage_count=len(extended_coverage_gaps),
         no_fix_count=len(no_fix_guardrails),
-        parent_guardrail_count=len(parent_guardrails),
         out_of_scope_count=len(out_of_scope),
     )
     summary = {

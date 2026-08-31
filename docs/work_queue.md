@@ -2,9 +2,23 @@
 
 ## Completed
 
-- 2026-08-31: Add a validation-only ESTO Extended overlay that replaces
-  detailed-demand test values with mapped detailed LEAP fixture evidence,
-  preserving explicit zero branches instead of synthetic equal allocations.
+- 2026-08-31: Investigate LEAP's single-CSV Energy Balance export path. Add a
+  fail-closed CSV parser that restores LEAP's stripped branch indentation only
+  from a row-for-row validated hierarchy template, and pass the optional
+  template through the portable dashboard mapping chain. The supplied CSV is
+  one Target/2022 table rather than an all-years replacement, so direct web
+  upload remains intentionally unavailable pending a hierarchy-bearing CSV
+  format or a maintained per-model hierarchy registry.
+
+- 2026-08-31: Add a validation-only ESTO Extended overlay that preserves each
+  historical placeholder total and allocates it to detailed structural leaves
+  using 2022 detailed LEAP shares. Explicit zero branches stay zero, legacy
+  products without LEAP evidence retain their latest observed historical
+  shape, and mapped terminal leaves are exposed as exact comparison rows.
+
+- 2026-08-31: Restore pre-base-year ESTO history in detailed dummy dashboards
+  and add standalone graphs for replacement-parent guardrails to the repeatable
+  ESTO-versus-LEAP issue review bundle.
 
 - 2026-08-31: Allow baseline-free discovery runs so the detailed dummy dataset
   can establish the corrected Extended-demand case set before that set is used
