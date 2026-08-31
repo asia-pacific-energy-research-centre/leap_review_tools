@@ -71,6 +71,11 @@ For a faster re-triage when dashboards already exist, replace `--export` and
 is the economy dashboard directory containing `chart_bundles` and
 `supporting_files/chart_manifest.csv`.
 
+Omit `--baseline-cases` for a discovery run. This is required when evaluating
+the detailed dummy dataset itself; otherwise its newly discovered cases would
+be excluded against their own prior list. After reviewing that discovery run,
+pass its accepted case CSV as `--baseline-cases` when triaging real exports.
+
 ## Review loop
 
 1. Open `index.html` and review Extended-only demand-leaf cases in P0, P1, P2
@@ -86,7 +91,8 @@ is the economy dashboard directory containing `chart_bundles` and
    is not a numeric disagreement.
 
 The output also retains `excluded_baseline_cases.csv`,
-`extended_demand_provenance.csv`, `no_fix_supply_guardrails.csv`,
+`extended_demand_provenance.csv`, `extended_demand_coverage_cases.csv`,
+`no_fix_supply_guardrails.csv`,
 `replacement_parent_guardrails.csv`, `out_of_scope_balance_differences.csv`,
 and `all_large_candidates.csv`, making every scope and threshold decision
 auditable.

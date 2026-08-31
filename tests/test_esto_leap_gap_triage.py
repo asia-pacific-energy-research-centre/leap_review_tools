@@ -97,7 +97,9 @@ def test_extended_only_demand_pairs_excludes_base_and_transformation_rows(
     tmp_path: Path,
 ) -> None:
     dashboard_root = tmp_path / "dashboard" / "20USA"
-    comparison_path = dashboard_root.parent / "mapping_chain" / "common_esto_comparison_data.parquet"
+    comparison_path = (
+        dashboard_root.parent / "mapping_chain" / "common_esto_comparison_data.parquet"
+    )
     comparison_path.parent.mkdir(parents=True)
     rows = [
         {
@@ -174,3 +176,32 @@ def test_supply_and_parent_guardrail_classification() -> None:
     assert not MODULE.is_replacement_parent_guardrail(
         {"common_flow_label": "15.02.01.01 BEV", "category": "detailed"}
     )
+
+
+def test_omitted_baseline_means_discovery_mode() -> None:
+    assert MODULE.read_baseline_signatures(None) == set()
+
+
+def test_coverage_rows_are_grouped_into_stable_product_cases() -> None:
+    rows = [
+        {
+            "economy": "01_AUS",
+            "common_product_label": "07.01 Motor gasoline",
+            "common_flow_label": "Road ICE small",
+            "esto_extended_value_pj": 2.0,
+        },
+        {
+            "economy": "01_AUS",
+            "common_product_label": "07.01 Motor gasoline",
+            "common_flow_label": "Road ICE large",
+            "esto_extended_value_pj": 3.0,
+        },
+    ]
+
+    first = MODULE.coverage_case_summary(rows)
+    second = MODULE.coverage_case_summary(list(reversed(rows)))
+
+    assert first[0]["coverage_case_id"] == second[0]["coverage_case_id"]
+    assert first[0]["missing_row_count"] == 2
+    assert first[0]["total_missing_esto_extended_pj"] == 5.0
+    assert first[0]["affected_flow_labels"] == "Road ICE large; Road ICE small"

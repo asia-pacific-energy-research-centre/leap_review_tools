@@ -2,6 +2,10 @@
 
 ## Completed
 
+- 2026-08-31: Allow baseline-free discovery runs so the detailed dummy dataset
+  can establish the corrected Extended-demand case set before that set is used
+  to exclude known cases from real-export triage.
+
 - 2026-08-31: Correct the ESTO-versus-LEAP gap queue to use provenance-backed
   ESTO Extended demand leaves rather than every graph in an Extended-capable
   dashboard; classify production/import/export as no-fix guardrails, retain

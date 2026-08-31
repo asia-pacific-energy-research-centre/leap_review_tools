@@ -97,9 +97,18 @@ def case_key(row: dict[str, object]) -> str:
 
 
 def stable_case_id(row: dict[str, object]) -> str:
-    economy = "".join(character for character in str(row["economy"]) if character.isalnum())
+    economy = "".join(
+        character for character in str(row["economy"]) if character.isalnum()
+    )
     digest = hashlib.sha1(case_key(row).encode("utf-8")).hexdigest()[:8].upper()
     return f"ELG-{economy}-{digest}"
+
+
+def stable_coverage_case_id(economy: str, product_label: str) -> str:
+    compact_economy = "".join(character for character in economy if character.isalnum())
+    key = f"{economy}|missing_extended_demand|{product_label}"
+    digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:8].upper()
+    return f"ELC-{compact_economy}-{digest}"
 
 
 def priority_for(absolute_difference_pj: float) -> str:
@@ -111,7 +120,9 @@ def priority_for(absolute_difference_pj: float) -> str:
 
 
 def comparison_data_path(dashboard_root: Path) -> Path:
-    return dashboard_root.parent / "mapping_chain" / "common_esto_comparison_data.parquet"
+    return (
+        dashboard_root.parent / "mapping_chain" / "common_esto_comparison_data.parquet"
+    )
 
 
 def extended_only_demand_pairs(
@@ -176,11 +187,9 @@ def extended_only_demand_pairs(
         "comparable_nonzero_leap",
         "missing_nonzero_leap_value",
     )
-    audit = (
-        extended_values
-        .sort_values(["common_flow_code", "common_product_code"])
-        .to_dict("records")
-    )
+    audit = extended_values.sort_values(
+        ["common_flow_code", "common_product_code"]
+    ).to_dict("records")
     pairs = {
         (str(row["common_flow_label"]), str(row["common_product_label"]))
         for row in audit
@@ -189,7 +198,10 @@ def extended_only_demand_pairs(
 
 
 def row_label_pair(row: dict[str, object]) -> tuple[str, str]:
-    return (str(row.get("common_flow_label") or ""), str(row.get("common_product_label") or ""))
+    return (
+        str(row.get("common_flow_label") or ""),
+        str(row.get("common_product_label") or ""),
+    )
 
 
 def is_no_fix_supply(row: dict[str, object]) -> bool:
@@ -230,7 +242,9 @@ def chart_rows(
     manifest = read_manifest(dashboard_root / "supporting_files" / "chart_manifest.csv")
     rows: list[dict[str, object]] = []
     coverage_gaps: list[dict[str, object]] = []
-    for bundle_path in sorted((dashboard_root / "chart_bundles").glob("*__charts.json")):
+    for bundle_path in sorted(
+        (dashboard_root / "chart_bundles").glob("*__charts.json")
+    ):
         charts = json.loads(bundle_path.read_text(encoding="utf-8"))["charts"]
         for chart_key, figure in charts.items():
             metadata = manifest.get(chart_key, {})
@@ -302,7 +316,9 @@ def chart_rows(
     return rows, coverage_gaps
 
 
-def deduplicate_aggregate_rows(rows: Iterable[dict[str, object]]) -> list[dict[str, object]]:
+def deduplicate_aggregate_rows(
+    rows: Iterable[dict[str, object]],
+) -> list[dict[str, object]]:
     """Remove repeated aggregate presentations while retaining every line chart."""
     selected: list[dict[str, object]] = []
     aggregate_signatures: set[tuple[object, ...]] = set()
@@ -314,7 +330,11 @@ def deduplicate_aggregate_rows(rows: Iterable[dict[str, object]]) -> list[dict[s
         signature = (
             row["economy"],
             row["page_key"],
-            *(round(float(row[key]), 6) for key in value_columns if row[key] is not None),
+            *(
+                round(float(row[key]), 6)
+                for key in value_columns
+                if row[key] is not None
+            ),
         )
         if signature in aggregate_signatures:
             continue
@@ -325,7 +345,9 @@ def deduplicate_aggregate_rows(rows: Iterable[dict[str, object]]) -> list[dict[s
     )
 
 
-def read_baseline_signatures(path: Path) -> set[str]:
+def read_baseline_signatures(path: Path | None) -> set[str]:
+    if path is None:
+        return set()
     with path.open(encoding="utf-8-sig", newline="") as handle:
         return {graph_signature(row) for row in csv.DictReader(handle)}
 
@@ -369,7 +391,9 @@ def update_registry(
         if key in active_keys:
             continue
         carried = dict(old)
-        carried["current_run_state"] = (inactive_states or {}).get(key, "not_reproduced")
+        carried["current_run_state"] = (inactive_states or {}).get(
+            key, "not_reproduced"
+        )
         updated.append(carried)
     return sorted(
         updated,
@@ -383,7 +407,9 @@ def update_registry(
 
 
 def safe_token(value: object, limit: int = 90) -> str:
-    text = "".join(character if character.isalnum() else "_" for character in str(value))
+    text = "".join(
+        character if character.isalnum() else "_" for character in str(value)
+    )
     return "_".join(part for part in text.split("_") if part)[:limit] or "chart"
 
 
@@ -417,7 +443,9 @@ def write_graph(path: Path, row: dict[str, object], case_id: str, year: int) -> 
 
 
 def write_rows_csv(path: Path, rows: list[dict[str, object]]) -> None:
-    serializable = [{key: value for key, value in row.items() if key != "figure"} for row in rows]
+    serializable = [
+        {key: value for key, value in row.items() if key != "figure"} for row in rows
+    ]
     fields: list[str] = []
     for row in serializable:
         for key in row:
@@ -429,17 +457,56 @@ def write_rows_csv(path: Path, rows: list[dict[str, object]]) -> None:
         writer.writerows(serializable)
 
 
+def coverage_case_summary(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    grouped: dict[tuple[str, str], list[dict[str, object]]] = {}
+    for row in rows:
+        key = (str(row["economy"]), str(row["common_product_label"]))
+        grouped.setdefault(key, []).append(row)
+    summary: list[dict[str, object]] = []
+    for (economy, product_label), members in grouped.items():
+        values = [float(row["esto_extended_value_pj"]) for row in members]
+        total = sum(values)
+        summary.append(
+            {
+                "coverage_case_id": stable_coverage_case_id(economy, product_label),
+                "priority": priority_for(total),
+                "economy": economy,
+                "common_product_label": product_label,
+                "missing_row_count": len(members),
+                "total_missing_esto_extended_pj": total,
+                "maximum_missing_row_pj": max(values),
+                "affected_flow_labels": "; ".join(
+                    sorted({str(row["common_flow_label"]) for row in members})
+                ),
+                "status": "open",
+                "reviewer_notes": "",
+            }
+        )
+    return sorted(
+        summary,
+        key=lambda row: float(row["total_missing_esto_extended_pj"]),
+        reverse=True,
+    )
+
+
 def write_index(
     output: Path,
     active_cases: list[dict[str, object]],
+    coverage_cases: list[dict[str, object]],
     *,
     year: int,
+    baseline_applied: bool,
     excluded_count: int,
     coverage_count: int,
     no_fix_count: int,
     parent_guardrail_count: int,
     out_of_scope_count: int,
 ) -> None:
+    baseline_note = (
+        f" after removing {excluded_count} graphs represented by the supplied baseline"
+        if baseline_applied
+        else " in this baseline-free discovery run"
+    )
     table_rows = []
     for row in active_cases:
         percent = row["percent_difference_vs_esto"]
@@ -456,6 +523,25 @@ def write_index(
             f"<td class='num'>{float(row['difference_pj']):+.2f}</td><td>{percent_text}</td>"
             f"<td><a href='{html.escape(str(row['graph_file']))}'>Open graph</a></td></tr>"
         )
+    coverage_rows = []
+    for row in coverage_cases:
+        coverage_rows.append(
+            "<tr>"
+            f"<td>{html.escape(str(row['coverage_case_id']))}</td>"
+            f"<td>{html.escape(str(row['priority']))}</td>"
+            f"<td>{html.escape(str(row['economy']))}</td>"
+            f"<td>{html.escape(str(row['common_product_label']))}</td>"
+            f"<td>{int(row['missing_row_count'])}</td>"
+            f"<td class='num'>{float(row['total_missing_esto_extended_pj']):.3f}</td>"
+            f"<td>{float(row['maximum_missing_row_pj']):.3f}</td>"
+            f"<td>{html.escape(str(row['affected_flow_labels']))}</td></tr>"
+        )
+    active_table_body = "".join(table_rows) or (
+        "<tr><td colspan='13'>No large numeric differences in mapped Extended-demand rows.</td></tr>"
+    )
+    coverage_table_body = "".join(coverage_rows) or (
+        "<tr><td colspan='8'>No Extended-demand coverage cases.</td></tr>"
+    )
     output.joinpath("index.html").write_text(
         "<!doctype html><html><head><meta charset='utf-8'><title>ESTO–LEAP issue queue</title>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
@@ -463,18 +549,25 @@ def write_index(
         ".note{max-width:1100px;color:#475569;margin-bottom:18px}table{border-collapse:collapse;width:100%}"
         "th,td{padding:8px;border-bottom:1px solid #dbe2ea;text-align:left;vertical-align:top}"
         "th{position:sticky;top:0;background:#eef3f8}.num{font-weight:700}tr:hover{background:#f8fafc}"
-        "a{color:#075ea8}</style></head><body><h1>ESTO versus LEAP — active issue queue</h1>"
-        f"<p class='note'>{len(active_cases)} active {year} Extended-only demand-leaf cases remain after "
-        f"removing {excluded_count} graphs already represented by the detailed-sector dummy baseline. "
+        "a{color:#075ea8}h2{margin-top:32px}</style></head><body>"
+        "<h1>ESTO versus LEAP — active issue queue</h1>"
+        f"<p class='note'>{len(active_cases)} active {year} Extended-only demand-leaf cases remain"
+        f"{baseline_note}. "
         f"The audit tables contain {no_fix_count} production/import/export no-fix guardrails, "
         f"{parent_guardrail_count} replacement-parent checks, {out_of_scope_count} ordinary balance "
-        f"differences, and {coverage_count} Extended-demand missing-source cases. Case IDs remain stable "
-        "across reruns when economy and graph identity are unchanged.</p><table><thead><tr>"
+        f"differences, and {coverage_count} Extended-demand missing-source rows grouped into "
+        f"{len(coverage_cases)} coverage cases. Case IDs remain stable across reruns when economy and "
+        "graph identity are unchanged.</p><h2>Large numeric differences</h2><table><thead><tr>"
         "<th>Case</th><th>Priority</th><th>Economy</th><th>Type</th><th>Page</th><th>Section</th>"
         f"<th>Flow</th><th>Product</th><th>ESTO {year}</th><th>LEAP {year}</th>"
         "<th>LEAP−ESTO PJ</th><th>% of ESTO</th><th>Graph</th></tr></thead><tbody>"
-        + "".join(table_rows)
-        + "</tbody></table></body></html>",
+        + active_table_body
+        + "</tbody></table><h2>Extended-demand coverage cases</h2>"
+        "<p class='note'>These ESTO Extended rows have no nonzero LEAP counterpart. The summed PJ is "
+        "an issue-ranking measure across affected technology rows, not a conserved energy total.</p>"
+        "<table><thead><tr><th>Coverage case</th><th>Priority</th><th>Economy</th><th>Product</th>"
+        "<th>Missing rows</th><th>Summed row PJ</th><th>Largest row PJ</th><th>Affected flows</th>"
+        "</tr></thead><tbody>" + coverage_table_body + "</tbody></table></body></html>",
         encoding="utf-8",
     )
 
@@ -528,15 +621,25 @@ def render_exports(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dashboard", action="append", default=[], metavar="ECONOMY=PATH")
-    parser.add_argument("--export", action="append", default=[], metavar="ECONOMY=WORKBOOK")
+    parser.add_argument(
+        "--dashboard", action="append", default=[], metavar="ECONOMY=PATH"
+    )
+    parser.add_argument(
+        "--export", action="append", default=[], metavar="ECONOMY=WORKBOOK"
+    )
     parser.add_argument("--web-app-root", type=Path)
-    parser.add_argument("--baseline-cases", required=True, type=Path)
+    parser.add_argument(
+        "--baseline-cases",
+        type=Path,
+        help="Optional known-case CSV. Omit it for a discovery run such as the detailed dummy dataset.",
+    )
     parser.add_argument("--previous-registry", type=Path)
     parser.add_argument("--output-directory", required=True, type=Path)
     parser.add_argument("--plotly-bundle", required=True, type=Path)
     parser.add_argument("--year", type=int, default=DEFAULT_YEAR)
-    parser.add_argument("--min-absolute-pj", type=float, default=DEFAULT_MIN_ABSOLUTE_PJ)
+    parser.add_argument(
+        "--min-absolute-pj", type=float, default=DEFAULT_MIN_ABSOLUTE_PJ
+    )
     parser.add_argument("--min-percent", type=float, default=DEFAULT_MIN_PERCENT)
     parser.add_argument(
         "--force-include-absolute-pj",
@@ -598,7 +701,9 @@ def main() -> None:
         and row_label_pair(row) in eligible_pairs.get(str(row["economy"]), set())
     ]
     excluded = [row for row in eligible if graph_signature(row) in baseline_signatures]
-    active = [row for row in eligible if graph_signature(row) not in baseline_signatures]
+    active = [
+        row for row in eligible if graph_signature(row) not in baseline_signatures
+    ]
     no_fix_guardrails = [row for row in selected if is_no_fix_supply(row)]
     parent_guardrails = [
         row for row in selected if is_replacement_parent_guardrail(row)
@@ -612,6 +717,7 @@ def main() -> None:
         for row in extended_demand_rows
         if row["coverage_status"] == "missing_nonzero_leap_value"
     ]
+    coverage_cases = coverage_case_summary(extended_coverage_gaps)
     active.sort(key=lambda row: float(row["absolute_difference_pj"]), reverse=True)
 
     run_id = args.run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -655,6 +761,7 @@ def main() -> None:
     write_rows_csv(output / "case_registry.csv", registry)
     write_rows_csv(output / "excluded_baseline_cases.csv", excluded)
     write_rows_csv(output / "extended_demand_coverage_gaps.csv", extended_coverage_gaps)
+    write_rows_csv(output / "extended_demand_coverage_cases.csv", coverage_cases)
     write_rows_csv(output / "no_fix_supply_guardrails.csv", no_fix_guardrails)
     write_rows_csv(output / "replacement_parent_guardrails.csv", parent_guardrails)
     write_rows_csv(output / "out_of_scope_balance_differences.csv", out_of_scope)
@@ -664,7 +771,9 @@ def main() -> None:
     write_index(
         output,
         active,
+        coverage_cases,
         year=args.year,
+        baseline_applied=args.baseline_cases is not None,
         excluded_count=len(excluded),
         coverage_count=len(extended_coverage_gaps),
         no_fix_count=len(no_fix_guardrails),
@@ -679,7 +788,11 @@ def main() -> None:
             economy: file_fingerprint(path) for economy, path in exports.items()
         },
         "dashboards": {economy: str(path) for economy, path in dashboards.items()},
-        "baseline_cases": file_fingerprint(args.baseline_cases.resolve()),
+        "baseline_cases": (
+            file_fingerprint(args.baseline_cases.resolve())
+            if args.baseline_cases is not None
+            else None
+        ),
         "previous_registry": (
             file_fingerprint(args.previous_registry.resolve())
             if args.previous_registry and args.previous_registry.is_file()
@@ -691,6 +804,7 @@ def main() -> None:
         "excluded_as_known_baseline_graphs": len(excluded),
         "active_cases": len(active),
         "extended_demand_coverage_gaps": len(extended_coverage_gaps),
+        "extended_demand_coverage_cases": len(coverage_cases),
         "no_fix_supply_guardrails": len(no_fix_guardrails),
         "replacement_parent_guardrails": len(parent_guardrails),
         "out_of_scope_balance_differences": len(out_of_scope),
@@ -707,7 +821,9 @@ def main() -> None:
             "force_include_absolute_pj": args.force_include_absolute_pj,
         },
     }
-    (output / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    (output / "summary.json").write_text(
+        json.dumps(summary, indent=2), encoding="utf-8"
+    )
     print(json.dumps(summary, indent=2))
 
 
