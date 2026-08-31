@@ -29,6 +29,10 @@ if __name__ == "__main__":
     demo.launch(
         server_name=os.getenv("GRADIO_SERVER_NAME", "0.0.0.0"),
         server_port=int(os.getenv("GRADIO_SERVER_PORT", "7860")),
+        # Dashboard pages are generated dynamically under /tmp.  Gradio's
+        # static-path registration does not reliably make those runtime files
+        # available through /gradio_api/file= on the hosted Space, so allow
+        # this narrowly-scoped directory explicitly.
         allowed_paths=[str(DASHBOARD_SERVE_ROOT)],
     )
 
