@@ -2,6 +2,10 @@
 
 ## Completed
 
+- 2026-08-31: Add a validation-only ESTO Extended overlay that replaces
+  detailed-demand test values with mapped detailed LEAP fixture evidence,
+  preserving explicit zero branches instead of synthetic equal allocations.
+
 - 2026-08-31: Allow baseline-free discovery runs so the detailed dummy dataset
   can establish the corrected Extended-demand case set before that set is used
   to exclude known cases from real-export triage.
