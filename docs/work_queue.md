@@ -2,6 +2,13 @@
 
 ## Completed
 
+- 2026-09-01: Create all-years PRC and USA Target standard-test fixtures from
+  the latest valid local balance exports. Preserve 2022-2060 source totals,
+  allocate detailed Road branches from each economy's LEAP transport results,
+  include all 22 detailed Electricity Generation and CHP plant cases, and
+  validate the focused ESTO Extended + LEAP dashboards with zero unmapped
+  terminal rows, zero interim power fallbacks, and conserved power totals.
+
 - 2026-09-01: Extend the all-years Australia validation fixture with explicit
   detailed Electricity Generation and CHP process trees. Retain every expected
   plant case, including zero-valued technologies, map each LEAP plant/fuel pair
