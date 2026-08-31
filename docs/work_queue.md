@@ -2,6 +2,14 @@
 
 ## Completed
 
+- 2026-08-31: Rebuild the all-years detailed AUS test fixture with Ninth Target
+  product/year shares for the Services-versus-Residential split, populate
+  Datacentres from 2023 using the Ninth `16.01.01` evidence, and keep every
+  Buildings parent total conserved. Correct detailed non-road transport so the
+  full calibrated domestic total is retained in 2022 while embedded positive
+  international components are removed only in projection years; regenerate
+  and audit the app mapping-chain outputs at the 2022/2023 boundary.
+
 - 2026-08-31: Reconcile the all-years detailed AUS fixture at the source:
   calibrate 2022 Buildings to the ordinary ESTO Commercial/Residential split,
   represent marine and aviation bunkers as negative supply withdrawals, and
