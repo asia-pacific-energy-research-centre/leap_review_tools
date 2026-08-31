@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pandas as pd
+
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "esto_leap_gap_triage.py"
 SPEC = importlib.util.spec_from_file_location("esto_leap_gap_triage", SCRIPT)
 assert SPEC and SPEC.loader
@@ -89,3 +91,86 @@ def test_aggregate_deduplication_is_scoped_to_economy() -> None:
 
     assert len(selected) == 2
     assert {row["economy"] for row in selected} == {"01_AUS", "20_USA"}
+
+
+def test_extended_only_demand_pairs_excludes_base_and_transformation_rows(
+    tmp_path: Path,
+) -> None:
+    dashboard_root = tmp_path / "dashboard" / "20USA"
+    comparison_path = dashboard_root.parent / "mapping_chain" / "common_esto_comparison_data.parquet"
+    comparison_path.parent.mkdir(parents=True)
+    rows = [
+        {
+            "source_system": "ESTO",
+            "year": 2022,
+            "common_row_id": "ordinary-production",
+            "common_flow_code": "01",
+            "common_flow_label": "01 Production",
+            "common_product_code": "08.01",
+            "common_product_label": "08.01 Natural gas",
+            "value": 10.0,
+        },
+        {
+            "source_system": "ESTO_EXTENDED",
+            "year": 2022,
+            "common_row_id": "ordinary-production",
+            "common_flow_code": "01",
+            "common_flow_label": "01 Production",
+            "common_product_code": "08.01",
+            "common_product_label": "08.01 Natural gas",
+            "value": 10.0,
+        },
+        {
+            "source_system": "ESTO_EXTENDED",
+            "year": 2022,
+            "common_row_id": "extended-steel",
+            "common_flow_code": "14.03.01.01",
+            "common_flow_label": "14.03.01.01 BF-BOF",
+            "common_product_code": "01.02",
+            "common_product_label": "01.02 Coal",
+            "value": 5.0,
+        },
+        {
+            "source_system": "LEAP",
+            "year": 2022,
+            "common_row_id": "extended-steel",
+            "common_flow_code": "14.03.01.01",
+            "common_flow_label": "14.03.01.01 BF-BOF",
+            "common_product_code": "01.02",
+            "common_product_label": "01.02 Coal",
+            "value": 4.0,
+        },
+        {
+            "source_system": "ESTO_EXTENDED",
+            "year": 2022,
+            "common_row_id": "extended-chp",
+            "common_flow_code": "09.01.02.01",
+            "common_flow_label": "Coal CHP",
+            "common_product_code": "01.02",
+            "common_product_label": "01.02 Coal",
+            "value": 7.0,
+        },
+    ]
+    pd.DataFrame(rows).to_parquet(comparison_path, index=False)
+
+    pairs, audit = MODULE.extended_only_demand_pairs(dashboard_root, 2022)
+
+    assert pairs == {("14.03.01.01 BF-BOF", "01.02 Coal")}
+    assert [row["common_row_id"] for row in audit] == ["extended-steel"]
+    assert audit[0]["leap_value_pj"] == 4.0
+    assert audit[0]["coverage_status"] == "comparable_nonzero_leap"
+
+
+def test_supply_and_parent_guardrail_classification() -> None:
+    assert MODULE.is_no_fix_supply(
+        {"common_flow_label": "02 Imports", "category": "detailed"}
+    )
+    assert not MODULE.is_no_fix_supply(
+        {"common_flow_label": "15.02 Road", "category": "aggregate"}
+    )
+    assert MODULE.is_replacement_parent_guardrail(
+        {"common_flow_label": "15.02 Road", "category": "aggregate"}
+    )
+    assert not MODULE.is_replacement_parent_guardrail(
+        {"common_flow_label": "15.02.01.01 BEV", "category": "detailed"}
+    )

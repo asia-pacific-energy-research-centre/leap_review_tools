@@ -2,6 +2,12 @@
 
 ## Completed
 
+- 2026-08-31: Correct the ESTO-versus-LEAP gap queue to use provenance-backed
+  ESTO Extended demand leaves rather than every graph in an Extended-capable
+  dashboard; classify production/import/export as no-fix guardrails, retain
+  replacement parents as conservation checks, and isolate ordinary balance
+  differences from the placeholder-replacement fix queue.
+
 - 2026-08-30: Add a repeatable ESTO-versus-LEAP base-year gap triage workflow
   that compares exact plotted traces, excludes graph identities already covered
   by a dummy detailed-sector baseline, assigns stable cross-run case IDs,

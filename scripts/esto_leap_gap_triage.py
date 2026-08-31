@@ -21,11 +21,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 DEFAULT_YEAR = 2022
 DEFAULT_MIN_ABSOLUTE_PJ = 5.0
 DEFAULT_MIN_PERCENT = 25.0
 DEFAULT_FORCE_INCLUDE_ABSOLUTE_PJ = 20.0
+DEMAND_REPLACEMENT_FLOW_PREFIXES = ("04.", "05.", "14.", "15.", "16.", "17.")
+NO_FIX_SUPPLY_FLOW_PREFIXES = ("01 ", "02 ", "03 ")
 
 EDITABLE_REGISTRY_FIELDS = (
     "status",
@@ -105,6 +108,102 @@ def priority_for(absolute_difference_pj: float) -> str:
     if absolute_difference_pj >= 20.0:
         return "P1"
     return "P2"
+
+
+def comparison_data_path(dashboard_root: Path) -> Path:
+    return dashboard_root.parent / "mapping_chain" / "common_esto_comparison_data.parquet"
+
+
+def extended_only_demand_pairs(
+    dashboard_root: Path, year: int
+) -> tuple[set[tuple[str, str]], list[dict[str, object]]]:
+    """Return nonzero demand rows present in ESTO Extended but absent from ESTO.
+
+    ESTO Extended contains a copy of the ordinary balance, so source-system
+    labels alone cannot identify the new detail.  Common-row presence against
+    the ordinary ESTO source is the provenance boundary.
+    """
+    path = comparison_data_path(dashboard_root)
+    columns = [
+        "source_system",
+        "year",
+        "common_row_id",
+        "common_flow_code",
+        "common_flow_label",
+        "common_product_code",
+        "common_product_label",
+        "value",
+    ]
+    frame = pd.read_parquet(path, columns=columns)
+    frame = frame[
+        (frame["year"] == year)
+        & frame["source_system"].isin(["ESTO", "ESTO_EXTENDED", "LEAP"])
+    ].copy()
+    ordinary_ids = set(
+        frame.loc[frame["source_system"] == "ESTO", "common_row_id"].dropna()
+    )
+    extended = frame[
+        (frame["source_system"] == "ESTO_EXTENDED")
+        & (~frame["common_row_id"].isin(ordinary_ids))
+        & (frame["value"].abs() > 1e-9)
+    ].copy()
+    extended = extended[
+        extended["common_flow_code"]
+        .fillna("")
+        .astype(str)
+        .str.startswith(DEMAND_REPLACEMENT_FLOW_PREFIXES)
+    ]
+    audit_columns = [
+        "common_row_id",
+        "common_flow_code",
+        "common_flow_label",
+        "common_product_code",
+        "common_product_label",
+    ]
+    extended_values = (
+        extended.groupby(audit_columns, dropna=False, as_index=False)["value"]
+        .sum()
+        .rename(columns={"value": "esto_extended_value_pj"})
+    )
+    leap_values = (
+        frame[frame["source_system"] == "LEAP"]
+        .groupby("common_row_id", dropna=False)["value"]
+        .sum()
+    )
+    extended_values["leap_value_pj"] = extended_values["common_row_id"].map(leap_values)
+    extended_values["coverage_status"] = np.where(
+        extended_values["leap_value_pj"].fillna(0).abs() > 1e-9,
+        "comparable_nonzero_leap",
+        "missing_nonzero_leap_value",
+    )
+    audit = (
+        extended_values
+        .sort_values(["common_flow_code", "common_product_code"])
+        .to_dict("records")
+    )
+    pairs = {
+        (str(row["common_flow_label"]), str(row["common_product_label"]))
+        for row in audit
+    }
+    return pairs, audit
+
+
+def row_label_pair(row: dict[str, object]) -> tuple[str, str]:
+    return (str(row.get("common_flow_label") or ""), str(row.get("common_product_label") or ""))
+
+
+def is_no_fix_supply(row: dict[str, object]) -> bool:
+    label = str(row.get("common_flow_label") or "")
+    return label.startswith(NO_FIX_SUPPLY_FLOW_PREFIXES)
+
+
+def is_replacement_parent_guardrail(row: dict[str, object]) -> bool:
+    if row.get("category") != "aggregate":
+        return False
+    label = str(row.get("common_flow_label") or "")
+    return label.startswith(("04-05 ", "14 ", "15 ", "16 ", "17 ")) or label.startswith(
+        DEMAND_REPLACEMENT_FLOW_PREFIXES
+    )
 
 
 def file_fingerprint(path: Path) -> dict[str, object]:
@@ -243,6 +342,7 @@ def update_registry(
     previous: dict[str, dict[str, str]],
     *,
     run_id: str,
+    inactive_states: dict[str, str] | None = None,
 ) -> list[dict[str, object]]:
     updated: list[dict[str, object]] = []
     active_keys: set[str] = set()
@@ -269,7 +369,7 @@ def update_registry(
         if key in active_keys:
             continue
         carried = dict(old)
-        carried["current_run_state"] = "not_reproduced"
+        carried["current_run_state"] = (inactive_states or {}).get(key, "not_reproduced")
         updated.append(carried)
     return sorted(
         updated,
@@ -336,6 +436,9 @@ def write_index(
     year: int,
     excluded_count: int,
     coverage_count: int,
+    no_fix_count: int,
+    parent_guardrail_count: int,
+    out_of_scope_count: int,
 ) -> None:
     table_rows = []
     for row in active_cases:
@@ -361,9 +464,11 @@ def write_index(
         "th,td{padding:8px;border-bottom:1px solid #dbe2ea;text-align:left;vertical-align:top}"
         "th{position:sticky;top:0;background:#eef3f8}.num{font-weight:700}tr:hover{background:#f8fafc}"
         "a{color:#075ea8}</style></head><body><h1>ESTO versus LEAP — active issue queue</h1>"
-        f"<p class='note'>{len(active_cases)} active {year} cases remain after removing {excluded_count} "
-        "graphs already represented by the detailed-sector dummy baseline. "
-        f"{coverage_count} missing-source coverage cases are listed separately. Case IDs remain stable "
+        f"<p class='note'>{len(active_cases)} active {year} Extended-only demand-leaf cases remain after "
+        f"removing {excluded_count} graphs already represented by the detailed-sector dummy baseline. "
+        f"The audit tables contain {no_fix_count} production/import/export no-fix guardrails, "
+        f"{parent_guardrail_count} replacement-parent checks, {out_of_scope_count} ordinary balance "
+        f"differences, and {coverage_count} Extended-demand missing-source cases. Case IDs remain stable "
         "across reruns when economy and graph identity are unchanged.</p><table><thead><tr>"
         "<th>Case</th><th>Priority</th><th>Economy</th><th>Type</th><th>Page</th><th>Section</th>"
         f"<th>Flow</th><th>Product</th><th>ESTO {year}</th><th>LEAP {year}</th>"
@@ -467,7 +572,14 @@ def main() -> None:
     baseline_signatures = read_baseline_signatures(args.baseline_cases)
     all_large: list[dict[str, object]] = []
     coverage_gaps: list[dict[str, object]] = []
+    eligible_pairs: dict[str, set[tuple[str, str]]] = {}
+    extended_demand_rows: list[dict[str, object]] = []
     for economy, dashboard_root in dashboards.items():
+        pairs, provenance_rows = extended_only_demand_pairs(dashboard_root, args.year)
+        eligible_pairs[economy] = pairs
+        extended_demand_rows.extend(
+            {"economy": economy} | row for row in provenance_rows
+        )
         rows, gaps = chart_rows(
             economy,
             dashboard_root,
@@ -479,12 +591,46 @@ def main() -> None:
         all_large.extend(rows)
         coverage_gaps.extend(gaps)
     selected = deduplicate_aggregate_rows(all_large)
-    excluded = [row for row in selected if graph_signature(row) in baseline_signatures]
-    active = [row for row in selected if graph_signature(row) not in baseline_signatures]
+    eligible = [
+        row
+        for row in selected
+        if row["category"] == "detailed"
+        and row_label_pair(row) in eligible_pairs.get(str(row["economy"]), set())
+    ]
+    excluded = [row for row in eligible if graph_signature(row) in baseline_signatures]
+    active = [row for row in eligible if graph_signature(row) not in baseline_signatures]
+    no_fix_guardrails = [row for row in selected if is_no_fix_supply(row)]
+    parent_guardrails = [
+        row for row in selected if is_replacement_parent_guardrail(row)
+    ]
+    classified_keys = {
+        case_key(row) for row in eligible + no_fix_guardrails + parent_guardrails
+    }
+    out_of_scope = [row for row in selected if case_key(row) not in classified_keys]
+    extended_coverage_gaps = [
+        row
+        for row in extended_demand_rows
+        if row["coverage_status"] == "missing_nonzero_leap_value"
+    ]
     active.sort(key=lambda row: float(row["absolute_difference_pj"]), reverse=True)
 
     run_id = args.run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    registry = update_registry(active, read_registry(args.previous_registry), run_id=run_id)
+    inactive_states = {
+        case_key(row): state
+        for rows, state in (
+            (excluded, "known_baseline_excluded"),
+            (no_fix_guardrails, "no_fix_guardrail"),
+            (parent_guardrails, "parent_guardrail"),
+            (out_of_scope, "out_of_scope_balance"),
+        )
+        for row in rows
+    }
+    registry = update_registry(
+        active,
+        read_registry(args.previous_registry),
+        run_id=run_id,
+        inactive_states=inactive_states,
+    )
     registry_by_key = {str(row["case_key"]): row for row in registry}
 
     graph_directory = output / "graphs"
@@ -508,14 +654,22 @@ def main() -> None:
     write_rows_csv(output / "active_cases.csv", active)
     write_rows_csv(output / "case_registry.csv", registry)
     write_rows_csv(output / "excluded_baseline_cases.csv", excluded)
-    write_rows_csv(output / "coverage_gaps.csv", coverage_gaps)
+    write_rows_csv(output / "extended_demand_coverage_gaps.csv", extended_coverage_gaps)
+    write_rows_csv(output / "no_fix_supply_guardrails.csv", no_fix_guardrails)
+    write_rows_csv(output / "replacement_parent_guardrails.csv", parent_guardrails)
+    write_rows_csv(output / "out_of_scope_balance_differences.csv", out_of_scope)
+    write_rows_csv(output / "extended_demand_provenance.csv", extended_demand_rows)
+    write_rows_csv(output / "all_coverage_gaps.csv", coverage_gaps)
     write_rows_csv(output / "all_large_candidates.csv", all_large)
     write_index(
         output,
         active,
         year=args.year,
         excluded_count=len(excluded),
-        coverage_count=len(coverage_gaps),
+        coverage_count=len(extended_coverage_gaps),
+        no_fix_count=len(no_fix_guardrails),
+        parent_guardrail_count=len(parent_guardrails),
+        out_of_scope_count=len(out_of_scope),
     )
     summary = {
         "run_id": run_id,
@@ -536,7 +690,17 @@ def main() -> None:
         "selected_after_aggregate_deduplication": len(selected),
         "excluded_as_known_baseline_graphs": len(excluded),
         "active_cases": len(active),
-        "coverage_gaps": len(coverage_gaps),
+        "extended_demand_coverage_gaps": len(extended_coverage_gaps),
+        "no_fix_supply_guardrails": len(no_fix_guardrails),
+        "replacement_parent_guardrails": len(parent_guardrails),
+        "out_of_scope_balance_differences": len(out_of_scope),
+        "all_coverage_gaps": len(coverage_gaps),
+        "candidate_scope": {
+            "definition": "nonzero common rows present in ESTO Extended but absent from ordinary ESTO",
+            "flow_prefixes": list(DEMAND_REPLACEMENT_FLOW_PREFIXES),
+            "chart_level": "detailed only",
+            "explicit_no_fix_flows": ["01 Production", "02 Imports", "03 Exports"],
+        },
         "thresholds": {
             "minimum_absolute_pj": args.min_absolute_pj,
             "minimum_percent": args.min_percent,
