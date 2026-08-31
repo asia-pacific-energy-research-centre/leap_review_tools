@@ -2087,7 +2087,7 @@ def _write_diagnostics_bundle(
     *,
     bundle_path: Path,
     workbook_paths: list[Path],
-    diagnostics_directory: Path,
+    diagnostics_directory: Path | None,
     run_directory: Path,
     dashboard_directory: Path | None = None,
     log_directory: Path | None = None,
@@ -2098,7 +2098,7 @@ def _write_diagnostics_bundle(
         _add_uploaded_exports(bundle, uploaded_export_paths or [])
         for workbook_path in workbook_paths:
             bundle.write(workbook_path, arcname=f"workbooks/{workbook_path.name}")
-        if diagnostics_directory.is_dir():
+        if diagnostics_directory is not None and diagnostics_directory.is_dir():
             for path in sorted(diagnostics_directory.rglob("*")):
                 if path.is_file():
                     bundle.write(
@@ -2346,7 +2346,11 @@ def _saved_dashboard_button_labels(records: list[dict[str, object]]) -> list[str
         base_labels.append(" · ".join(details))
 
     return [
-        f"{base_label} · {_run_timestamp_label(record)} dashboard"
+        (
+            f"{base_label} · {_run_timestamp_label(record)} dashboard"
+            if base_labels.count(base_label) > 1
+            else f"{base_label} dashboard"
+        )
         for record, base_label in zip(records, base_labels)
     ]
 
