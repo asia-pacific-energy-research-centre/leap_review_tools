@@ -2,6 +2,14 @@
 
 ## Completed
 
+- 2026-08-31: Reconcile the all-years detailed AUS fixture at the source:
+  calibrate 2022 Buildings to the ordinary ESTO Commercial/Residential split,
+  represent marine and aviation bunkers as negative supply withdrawals, and
+  make their detailed rows add exactly to the combined bunker boundary. Limit
+  the validation ESTO overlay to mappings explicitly scoped `ESTO_EXTENDED`,
+  preserving all ordinary `BOTH`-scope ESTO rows while added children conserve
+  their nearest ordinary parent.
+
 - 2026-08-31: Investigate LEAP's CSV Energy Balance export paths. Add a
   fail-closed parser for the Target/2022 fuel-column layout that restores
   stripped branch indentation only from a validated hierarchy template. The

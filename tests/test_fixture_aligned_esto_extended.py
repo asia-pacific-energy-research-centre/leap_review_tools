@@ -54,11 +54,13 @@ def test_allocation_preserves_placeholder_totals_and_uses_leap_shares() -> None:
 
     allocated, audit, summaries = allocate_historical_detail(
         extended,
+        extended.iloc[[0]].copy(),
         reference,
         specs,
         economy="01AUS",
         years=["2021", "2022"],
         reference_year=2022,
+        allocatable_pairs=set(specs[0]["leaf_pairs"]),
     )
 
     rows = allocated.set_index(["flows", "products"])
@@ -114,11 +116,13 @@ def test_allocation_uses_latest_existing_shape_when_leap_has_no_evidence() -> No
 
     allocated, audit, _ = allocate_historical_detail(
         extended,
+        extended.iloc[[0]].copy(),
         pd.Series(dtype=float),
         specs,
         economy="01AUS",
         years=["2021", "2022"],
         reference_year=2022,
+        allocatable_pairs=set(specs[0]["leaf_pairs"]),
     )
 
     rows = allocated.set_index(["flows", "products"])
@@ -129,3 +133,100 @@ def test_allocation_uses_latest_existing_shape_when_leap_has_no_evidence() -> No
         "existing_historical_share_no_LEAP_evidence",
         "zero_placeholder_no_allocation",
     }
+
+
+def test_allocation_preserves_existing_ordinary_children() -> None:
+    ordinary = pd.DataFrame(
+        [
+            {
+                "economy": "01_AUS",
+                "flows": "16.01-16.02 Buildings",
+                "products": "electricity",
+                "is_subtotal": "True",
+                "2022": 780.0,
+            },
+            {
+                "economy": "01_AUS",
+                "flows": "16.01 Commercial",
+                "products": "electricity",
+                "is_subtotal": "False",
+                "2022": 300.0,
+            },
+            {
+                "economy": "01_AUS",
+                "flows": "16.02 Residential",
+                "products": "electricity",
+                "is_subtotal": "False",
+                "2022": 480.0,
+            },
+        ]
+    )
+    extended = pd.concat(
+        [
+            ordinary.assign(economy="01AUS"),
+            pd.DataFrame(
+                [
+                    {
+                        "economy": "01AUS",
+                        "flows": "16.01.01 Service A",
+                        "products": "electricity",
+                        "is_subtotal": "False",
+                        "2022": 150.0,
+                    },
+                    {
+                        "economy": "01AUS",
+                        "flows": "16.01.02 Service B",
+                        "products": "electricity",
+                        "is_subtotal": "False",
+                        "2022": 150.0,
+                    },
+                ]
+            ),
+        ],
+        ignore_index=True,
+    )
+    reference = pd.Series(
+        {
+            ("16.01.01 Service A", "electricity"): 1.0,
+            ("16.01.02 Service B", "electricity"): 2.0,
+            ("16.02 Residential", "electricity"): 999.0,
+        }
+    )
+    specs = [
+        {
+            "component": "Buildings",
+            "placeholder_flows": {"16.01-16.02 Buildings"},
+            "leaf_flows": {
+                "16.01.01 Service A",
+                "16.01.02 Service B",
+                "16.02 Residential",
+            },
+            "leaf_pairs": {
+                ("16.01.01 Service A", "electricity"),
+                ("16.01.02 Service B", "electricity"),
+                ("16.02 Residential", "electricity"),
+            },
+        }
+    ]
+
+    allocated, audit, _ = allocate_historical_detail(
+        extended,
+        ordinary,
+        reference,
+        specs,
+        economy="01AUS",
+        years=["2022"],
+        reference_year=2022,
+        allocatable_pairs={
+            ("16.01.01 Service A", "electricity"),
+            ("16.01.02 Service B", "electricity"),
+        },
+    )
+
+    rows = allocated.set_index(["flows", "products"])
+    assert rows.loc[("16.01-16.02 Buildings", "electricity"), "2022"] == 780.0
+    assert rows.loc[("16.01 Commercial", "electricity"), "2022"] == 300.0
+    assert rows.loc[("16.02 Residential", "electricity"), "2022"] == 480.0
+    assert rows.loc[("16.01.01 Service A", "electricity"), "2022"] == 100.0
+    assert rows.loc[("16.01.02 Service B", "electricity"), "2022"] == 200.0
+    assert set(audit["parent_flow"]) == {"16.01 Commercial"}
