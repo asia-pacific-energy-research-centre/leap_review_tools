@@ -40,23 +40,28 @@ needed.
 
 ## Hugging Face deployment
 
-The preferred deployment is a self-contained web-app repository containing an
-`hf_bundle/` prepared from the three local sibling repositories. The Space then
+The preferred deployment is a self-contained web-app repository containing a
+`runtime/` snapshot prepared from the three local sibling repositories. The Space then
 runs from the bundled snapshot and does not need GitHub access at runtime.
-Record the source commits in `hf_bundle/source_manifest.json` and refresh the
+The source commits and validated mapping-chain hashes are recorded in
+`runtime/source_manifest.json`; refresh the
 bundle locally whenever the source repositories change.
 
-From this repository, review a bundle without copying it:
+From this repository, validate and review a bundle without copying it:
 
-```python
-from web_app.prepare_hf_bundle import prepare_hf_bundle
-result = prepare_hf_bundle(dry_run=True)
-print(result["manifest"])
+```powershell
+C:\Users\Work\miniconda3\python.exe scripts\refresh_runtime.py --dry-run
 ```
 
-After reviewing the source commits and file counts, call
-`prepare_hf_bundle()` without `dry_run=True` to write the bundle into the
-sibling `leap_review_web_app` repository.
+The dry run fails if a generated mapping artifact does not match its manifest
+pin or if the Stage 3 generation record names a different mapping workbook.
+After reviewing the source commits, file counts, and mapping-chain generation,
+refresh this repository's runtime or pass the deployment target explicitly:
+
+```powershell
+C:\Users\Work\miniconda3\python.exe scripts\refresh_runtime.py `
+  --runtime-root ..\leap_review_web_app\runtime
+```
 
 The bundle should include only runtime code and required source/configuration
 assets. It does not need Git history, tests, notebooks, old release builds, or

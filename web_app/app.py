@@ -33,6 +33,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from web_app.guide_overlay import GUIDE_CSS, GUIDE_HTML, GUIDE_JS
+from web_app.runtime_bundle import validate_mapping_chain_bundle
 from web_app.runtime_profile import (
     estimate_runtime,
     format_duration,
@@ -42,7 +43,6 @@ from web_app.runtime_profile import (
     samples_behind_estimate,
 )
 from web_app.version_comparison import apply_version_comparison
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DASHBOARD_MIN_YEAR = 2010
@@ -2061,11 +2061,16 @@ def adjust_review_year_for_vintage(vintage: object, year: object) -> str:
 
 def _build_context(run_root: Path):
     """Build the same live-repository context used by developer mode."""
+    repository_roots = _repository_roots()
+    validate_mapping_chain_bundle(
+        INITIALISATION_ROOT / "config" / "portable_release_manifest.toml",
+        repository_roots,
+    )
     settings = DeveloperSettings(
         source_path=INITIALISATION_ROOT
         / "config"
         / "portable_release_manifest.toml",
-        repositories=_repository_roots(),
+        repositories=repository_roots,
         output_root=run_root / "output",
         input_root=run_root / "input",
         log_root=run_root / "logs",

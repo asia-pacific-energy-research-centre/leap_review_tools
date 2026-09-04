@@ -20,15 +20,20 @@ import argparse
 import json
 import shutil
 import subprocess
-import tomllib
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import tomllib
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE_PARENT = REPO_ROOT.parent
 DEFAULT_RUNTIME_ROOT = REPO_ROOT / "runtime"
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from web_app.runtime_bundle import validate_mapping_chain_bundle
 
 REQUIRED_REPOSITORIES = (
     "leap_initialisation",
@@ -129,6 +134,14 @@ def refresh_runtime(
             + ". Commit them first, or pass --allow-dirty for a local experiment."
         )
 
+    # Generated mapping outputs are one contract, not independent files. Check
+    # every pin and the Stage 3 workbook provenance before replacing a working
+    # runtime, so a refreshed workbook cannot be paired with stale outputs.
+    mapping_chain_bundle = validate_mapping_chain_bundle(
+        manifest_path,
+        source_roots,
+    )
+
     copy_plan: list[tuple[str, str]] = []
     for repository_name, specification in repositories.items():
         source_name = specification.get("source_key", repository_name)
@@ -166,6 +179,7 @@ def refresh_runtime(
         "prepared_at": datetime.now(timezone.utc).isoformat(),
         "source_repositories": source_metadata,
         "file_counts": {name: len(paths) for name, paths in copied.items()},
+        "mapping_chain_bundle": mapping_chain_bundle,
         "dry_run": dry_run,
     }
     if not dry_run:
@@ -192,9 +206,15 @@ def main() -> None:
         default=str(DEFAULT_SOURCE_PARENT),
         help="Directory holding the three source repositories.",
     )
+    parser.add_argument(
+        "--runtime-root",
+        default=str(DEFAULT_RUNTIME_ROOT),
+        help="Runtime directory to replace (default: this repository's runtime/).",
+    )
     arguments = parser.parse_args()
     result = refresh_runtime(
         source_parent=arguments.source_parent,
+        runtime_root=arguments.runtime_root,
         dry_run=arguments.dry_run,
         allow_dirty_sources=arguments.allow_dirty,
     )
