@@ -7,7 +7,10 @@ import json
 from collections.abc import Mapping
 from pathlib import Path
 
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10 on the hosted Space.
+    import tomli as tomllib
 
 MAPPING_WORKBOOK_ROLE = "outlook_mappings_master"
 MAPPING_CHAIN_GENERATION_ROLE = "mapping_chain_generation_manifest"
