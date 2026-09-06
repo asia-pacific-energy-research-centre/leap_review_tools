@@ -60,6 +60,8 @@ def test_version_roles_are_shown_in_the_existing_upload_rows() -> None:
     assert "upload-version'>Version 2" in readout
     assert "data-upload-name='original.xlsx'" in readout
     assert "data-upload-name='new.xlsx'" in readout
+    assert "data-upload-path='original.xlsx'" in readout
+    assert "data-upload-path='new.xlsx'" in readout
     assert "01_AUS" in readout
     assert "2022–2060" in readout
 

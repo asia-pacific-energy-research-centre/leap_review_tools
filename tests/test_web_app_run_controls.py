@@ -26,7 +26,9 @@ def test_browser_merges_file_actions_and_places_cancel_with_progress() -> None:
     assert "parsed.appendChild(actions)" in app.APP_JS
     assert "holder.classList.toggle('is-merged-preview', hasMergedRows)" in app.APP_JS
     assert "holder.classList.add('is-merged-preview')" not in app.APP_JS
+    assert "nativeRowsByPath" in app.APP_JS
     assert "nativeRowsByName" in app.APP_JS
+    assert "parsed.dataset.uploadPath" in app.APP_JS
     assert "parsed.dataset.uploadName" in app.APP_JS
     assert "nativeRows[index]" not in app.APP_JS
     assert "const placeCancelRun" in app.APP_JS

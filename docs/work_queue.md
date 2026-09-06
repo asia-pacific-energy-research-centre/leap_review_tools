@@ -153,9 +153,10 @@
   same-scenario, same-year exports to open Version comparison. Both role
   selectors list every candidate, retain a valid deliberately selected pair,
   and still prevent choosing the same file for both roles. Custom upload rows
-  bind their download/remove actions to Gradio's native rows by filename, not
-  DOM position, so asynchronous multi-file ordering cannot attach an action to
-  the wrong displayed export.
+  bind their download/remove actions to Gradio's native rows by full uploaded
+  path (with filename fallback), not DOM position, so asynchronous multi-file
+  ordering and duplicate basenames cannot attach an action to the wrong
+  displayed export.
 
 ## Planned
 

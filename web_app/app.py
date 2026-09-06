@@ -1615,25 +1615,43 @@ APP_JS = """
     // at the same moment so Gradio's original upload chooser becomes visible.
     holder.classList.toggle('is-merged-preview', hasMergedRows);
     if (!hasMergedRows) return;
-    const filenameFromLink = (link) => {
+    const normaliseUploadPath = (value) => (value || '')
+      .replaceAll(String.fromCharCode(92), '/')
+      .replace(/[/]+/g, '/')
+      .replace(/[/]$/, '');
+    const uploadPathFromLink = (link) => {
       if (!link) return '';
       try {
         const pathname = decodeURIComponent(new URL(link.href, window.location.href).pathname);
-        return pathname.split(/[\\/]/).filter(Boolean).pop() || '';
+        const marker = pathname.indexOf('/file=');
+        return normaliseUploadPath(marker >= 0 ? pathname.slice(marker + 6) : pathname);
       } catch (error) {
         return '';
       }
     };
+    const filenameFromPath = (path) => path.split('/').filter(Boolean).pop() || '';
+    const nativeRowsByPath = new Map();
     const nativeRowsByName = new Map();
     nativeRows.forEach((native) => {
-      const name = filenameFromLink(native.querySelector('td.download a'));
+      const path = uploadPathFromLink(native.querySelector('td.download a'));
+      const name = filenameFromPath(path);
       if (!name) return;
+      if (!nativeRowsByPath.has(path)) nativeRowsByPath.set(path, []);
+      nativeRowsByPath.get(path).push(native);
       if (!nativeRowsByName.has(name)) nativeRowsByName.set(name, []);
       nativeRowsByName.get(name).push(native);
     });
+    const claimedNativeRows = new Set();
+    const takeUnclaimed = (matches) => (matches || []).find((row) => {
+      if (claimedNativeRows.has(row)) return false;
+      claimedNativeRows.add(row);
+      return true;
+    });
     parsedRows.forEach((parsed) => {
-      const matches = nativeRowsByName.get(parsed.dataset.uploadName || '') || [];
-      const native = matches.shift();
+      const path = normaliseUploadPath(parsed.dataset.uploadPath || '');
+      const native = takeUnclaimed(nativeRowsByPath.get(path)) || takeUnclaimed(
+        nativeRowsByName.get(parsed.dataset.uploadName || '')
+      );
       const existing = parsed.querySelector('.upload-native-actions');
       if (!native) {
         if (existing) existing.remove();
@@ -3780,6 +3798,7 @@ def _uploads_table(
     for upload in uploads:
         name = html.escape(upload.path.name)
         data_name = html.escape(upload.path.name, quote=True)
+        data_path = html.escape(str(upload.path), quote=True)
         role = version_roles.get(upload.path.name)
         version_badge = (
             f"<span class='upload-version'>{html.escape(role)}</span>" if role else ""
@@ -3792,7 +3811,8 @@ def _uploads_table(
                 f"years as {html.escape(repeats)} — not used</span>"
             )
             rows.append(
-                f"<li class='upload-row is-dupe' data-upload-name='{data_name}'>"
+                f"<li class='upload-row is-dupe' data-upload-name='{data_name}' "
+                f"data-upload-path='{data_path}'>"
                 f"{file_name}{detail}</li>"
             )
             continue
@@ -3812,7 +3832,8 @@ def _uploads_table(
             detail = f"<span class='upload-error'>{html.escape(upload.error)}</span>"
             state = "bad"
         rows.append(
-            f"<li class='upload-row is-{state}' data-upload-name='{data_name}'>"
+            f"<li class='upload-row is-{state}' data-upload-name='{data_name}' "
+            f"data-upload-path='{data_path}'>"
             f"{file_name}{detail}</li>"
         )
     return f"<ul class='upload-list'>{''.join(rows)}</ul>"
