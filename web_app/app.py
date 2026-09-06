@@ -1615,13 +1615,33 @@ APP_JS = """
     // at the same moment so Gradio's original upload chooser becomes visible.
     holder.classList.toggle('is-merged-preview', hasMergedRows);
     if (!hasMergedRows) return;
-    parsedRows.forEach((parsed, index) => {
-      const native = nativeRows[index];
-      if (!native) return;
+    const filenameFromLink = (link) => {
+      if (!link) return '';
+      try {
+        const pathname = decodeURIComponent(new URL(link.href, window.location.href).pathname);
+        return pathname.split(/[\\/]/).filter(Boolean).pop() || '';
+      } catch (error) {
+        return '';
+      }
+    };
+    const nativeRowsByName = new Map();
+    nativeRows.forEach((native) => {
+      const name = filenameFromLink(native.querySelector('td.download a'));
+      if (!name) return;
+      if (!nativeRowsByName.has(name)) nativeRowsByName.set(name, []);
+      nativeRowsByName.get(name).push(native);
+    });
+    parsedRows.forEach((parsed) => {
+      const matches = nativeRowsByName.get(parsed.dataset.uploadName || '') || [];
+      const native = matches.shift();
+      const existing = parsed.querySelector('.upload-native-actions');
+      if (!native) {
+        if (existing) existing.remove();
+        return;
+      }
       const sourceLink = native.querySelector('td.download a');
       const sourceRemove = native.querySelector('button[aria-label*="Remove"], [data-single-remove]');
       const signature = (sourceLink ? sourceLink.href : '') + '|' + (native.textContent || '').trim();
-      const existing = parsed.querySelector('.upload-native-actions');
       if (existing && existing.dataset.signature === signature) return;
       if (existing) existing.remove();
       const actions = document.createElement('span');
@@ -3759,6 +3779,7 @@ def _uploads_table(
     rows = []
     for upload in uploads:
         name = html.escape(upload.path.name)
+        data_name = html.escape(upload.path.name, quote=True)
         role = version_roles.get(upload.path.name)
         version_badge = (
             f"<span class='upload-version'>{html.escape(role)}</span>" if role else ""
@@ -3771,7 +3792,8 @@ def _uploads_table(
                 f"years as {html.escape(repeats)} — not used</span>"
             )
             rows.append(
-                f"<li class='upload-row is-dupe'>{file_name}{detail}</li>"
+                f"<li class='upload-row is-dupe' data-upload-name='{data_name}'>"
+                f"{file_name}{detail}</li>"
             )
             continue
         if upload.ok:
@@ -3790,7 +3812,8 @@ def _uploads_table(
             detail = f"<span class='upload-error'>{html.escape(upload.error)}</span>"
             state = "bad"
         rows.append(
-            f"<li class='upload-row is-{state}'>{file_name}{detail}</li>"
+            f"<li class='upload-row is-{state}' data-upload-name='{data_name}'>"
+            f"{file_name}{detail}</li>"
         )
     return f"<ul class='upload-list'>{''.join(rows)}</ul>"
 
