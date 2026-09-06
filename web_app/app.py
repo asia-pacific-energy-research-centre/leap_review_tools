@@ -13,6 +13,7 @@ import gzip
 import html
 import json
 import os
+import posixpath
 import re
 import shutil
 import subprocess
@@ -72,8 +73,8 @@ TOKYO_TIMEZONE = timezone(timedelta(hours=9), name="JST")
 VERSION_COMPARISON_GREEN_PERCENT = 0.1
 VERSION_COMPARISON_YELLOW_PERCENT = 5.0
 PLOTLY_CDN_URL = "https://cdn.plot.ly/plotly-2.35.2.min.js"
-PLOTLY_ARCHIVE_PATH = "dashboard/assets/plotly.min.js"
-PLOTLY_ARCHIVE_PAGE_URL = "../../assets/plotly.min.js"
+PLOTLY_ARCHIVE_PATH = "a/plotly.min.js"
+ARCHIVE_MANIFEST_PATH = "archive_manifest.json"
 
 
 def _as_tokyo_time(value: datetime) -> datetime:
@@ -1943,11 +1944,12 @@ def _dashboard_archive_name(
     *,
     created_at: datetime | None = None,
 ) -> str:
-    """Return a recognisable filename for a self-contained dashboard ZIP."""
+    """Return a short, recognisable filename for a self-contained dashboard ZIP."""
     timestamp = _as_tokyo_time(created_at or datetime.now(timezone.utc))
+    economy_token = _safe_filename_token(economy)[:16].rstrip("_-") or "unknown"
+    scenario_token = _safe_filename_token(scenario)[:12].rstrip("_-") or "unknown"
     return (
-        f"{_safe_filename_token(economy)}_"
-        f"{_safe_filename_token(scenario)}_dashboard_archive_"
+        f"{economy_token}_{scenario_token}_dashboard_"
         f"{timestamp.strftime('%d%m%y_%H%M%S')}.zip"
     )
 
@@ -2100,96 +2102,193 @@ def _write_diagnostics_bundle(
 ) -> None:
     """Package source exports, derived diagnostics, and a self-contained dashboard."""
     with zipfile.ZipFile(bundle_path, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
-        _add_uploaded_exports(bundle, uploaded_export_paths or [])
-        for workbook_path in workbook_paths:
-            bundle.write(workbook_path, arcname=f"workbooks/{workbook_path.name}")
+        manifest: dict[str, object] = {
+            "format_version": 1,
+            "archive_type": "complete_run",
+            "uploaded_balance_exports": _add_uploaded_exports(
+                bundle, uploaded_export_paths or []
+            ),
+            "review_workbooks": [],
+        }
+        workbook_records = manifest["review_workbooks"]
+        assert isinstance(workbook_records, list)
+        for index, workbook_path in enumerate(workbook_paths, start=1):
+            archive_path = f"w/review_{index:02d}{workbook_path.suffix.lower()}"
+            bundle.write(workbook_path, arcname=archive_path)
+            workbook_records.append(
+                {
+                    "archive_path": archive_path,
+                    "original_filename": workbook_path.name,
+                }
+            )
         if diagnostics_directory is not None and diagnostics_directory.is_dir():
             for path in sorted(diagnostics_directory.rglob("*")):
                 if path.is_file():
                     bundle.write(
                         path,
-                        arcname=(
-                            "diagnostics/"
-                            + path.relative_to(diagnostics_directory).as_posix()
-                        ),
+                        arcname="r/" + path.relative_to(diagnostics_directory).as_posix(),
                     )
         for name in ("validation_report.txt", "run_manifest.json", "run_manifest.txt"):
             path = run_directory / name
             if path.is_file():
-                bundle.write(path, arcname=name)
+                bundle.write(path, arcname=f"r/{name}")
         if dashboard_directory is not None:
-            _add_dashboard_files(bundle, dashboard_directory)
+            manifest["dashboard"] = _add_dashboard_files(
+                bundle,
+                dashboard_directory,
+                include_run_diagnostics=True,
+            )
         if log_directory is not None and log_directory.is_dir():
             for path in sorted(log_directory.glob("*.log")):
-                bundle.write(path, arcname=f"logs/{path.name}")
+                bundle.write(path, arcname=f"l/{path.name}")
+        _write_archive_manifest(bundle, manifest)
 
 
-def _add_dashboard_files(bundle: zipfile.ZipFile, dashboard_directory: Path) -> None:
-    """Add an offline-capable dashboard and its data to an archive."""
+def _dashboard_archive_entries(
+    dashboard_directory: Path,
+    *,
+    include_run_diagnostics: bool,
+) -> tuple[Path, dict[Path, str], list[dict[str, object]]]:
+    """Map renderer paths to a compact, stable dashboard archive layout."""
+    bundle_root = _dashboard_bundle_root(dashboard_directory)
+    entries: dict[Path, str] = {}
+    dashboard_sets: list[dict[str, object]] = []
+
+    if bundle_root != dashboard_directory.parent:
+        dashboard_roots = sorted(
+            path.parent
+            for path in bundle_root.glob("*/dashboards")
+            if path.parent.name != "diagnostics"
+        )
+    else:
+        dashboard_roots = [dashboard_directory.parent]
+
+    for index, dashboard_root in enumerate(dashboard_roots):
+        pages = (
+            dashboard_root / "dashboards"
+            if (dashboard_root / "dashboards").is_dir()
+            else dashboard_directory
+        )
+        archive_root = f"d/{index}"
+        dashboard_sets.append(
+            {
+                "archive_root": archive_root,
+                "source_directory": dashboard_root.name,
+            }
+        )
+        for source_name, archive_name in (
+            ("dashboards", "p"),
+            ("chart_bundles", "c"),
+            ("supporting_files", "s"),
+        ):
+            source_directory = dashboard_root / source_name
+            if source_name == "dashboards":
+                source_directory = pages
+            if not source_directory.is_dir():
+                continue
+            for path in sorted(source_directory.rglob("*")):
+                if path.is_file():
+                    entries[path.resolve()] = (
+                        f"{archive_root}/{archive_name}/"
+                        f"{path.relative_to(source_directory).as_posix()}"
+                    )
+
+    diagnostics_root = bundle_root / "diagnostics"
+    for source_name, archive_name in (("dashboards", "p"), ("supporting_files", "s")):
+        source_directory = diagnostics_root / source_name
+        if source_directory.is_dir():
+            for path in sorted(source_directory.rglob("*")):
+                if path.is_file():
+                    entries[path.resolve()] = (
+                        f"x/{archive_name}/{path.relative_to(source_directory).as_posix()}"
+                    )
+
+    if include_run_diagnostics:
+        mapping_chain = bundle_root / "mapping_chain"
+        if mapping_chain.is_dir():
+            for path in sorted(mapping_chain.rglob("*")):
+                if path.is_file():
+                    entries[path.resolve()] = (
+                        "m/" + path.relative_to(mapping_chain).as_posix()
+                    )
+
+    shortcut = bundle_root / "OPEN THE DASHBOARD.html"
+    if shortcut.is_file():
+        entries[shortcut.resolve()] = "OPEN THE DASHBOARD.html"
+    elif bundle_root == dashboard_directory.parent:
+        shortcut = dashboard_directory.parent / "OPEN THE DASHBOARD.html"
+        if shortcut.is_file():
+            entries[shortcut.resolve()] = "OPEN THE DASHBOARD.html"
+
+    return bundle_root, entries, dashboard_sets
+
+
+def _rewrite_archive_html(
+    page_html: str,
+    *,
+    source_path: Path,
+    archive_path: str,
+    entries: dict[Path, str],
+) -> str:
+    """Rewrite local HTML references after compacting the archive tree."""
+    replacements: list[tuple[str, str]] = []
+    archive_parent = posixpath.dirname(archive_path) or "."
+    for target_path, target_archive_path in entries.items():
+        source_reference = os.path.relpath(
+            target_path, start=source_path.resolve().parent
+        ).replace("\\", "/")
+        archive_reference = posixpath.relpath(target_archive_path, archive_parent)
+        replacements.append((source_reference, archive_reference))
+
+    plotly_reference = posixpath.relpath(PLOTLY_ARCHIVE_PATH, archive_parent)
+    replacements.append((PLOTLY_CDN_URL, plotly_reference))
+    for source_reference, archive_reference in sorted(
+        replacements, key=lambda item: len(item[0]), reverse=True
+    ):
+        for quote in ('"', "'"):
+            page_html = page_html.replace(
+                f"{quote}{source_reference}{quote}",
+                f"{quote}{archive_reference}{quote}",
+            )
+        page_html = page_html.replace(
+            f"url={source_reference}", f"url={archive_reference}"
+        )
+    return page_html
+
+
+def _add_dashboard_files(
+    bundle: zipfile.ZipFile,
+    dashboard_directory: Path,
+    *,
+    include_run_diagnostics: bool = False,
+) -> dict[str, object]:
+    """Add an offline-capable dashboard using short internal paths."""
     if not dashboard_directory.is_dir():
-        return
+        return {"dashboard_sets": [], "entry_count": 0}
 
     plotly_bundle = _plotly_offline_bundle_path()
-
-    def add_dashboard_file(path: Path, arcname: str) -> None:
-        """Write dashboard pages with their external Plotly dependency localised."""
-        if path.suffix.casefold() != ".html":
-            bundle.write(path, arcname=arcname)
-            return
-        page_html = path.read_text(encoding="utf-8")
-        page_html = page_html.replace(PLOTLY_CDN_URL, PLOTLY_ARCHIVE_PAGE_URL)
-        bundle.writestr(arcname, page_html.encode("utf-8"))
-
-    bundle_root = _dashboard_bundle_root(dashboard_directory)
-    if bundle_root != dashboard_directory.parent:
-        for path in sorted(bundle_root.rglob("*")):
-            if path.is_file() and path.name not in {
-                "run_manifest.json",
-                "run_manifest.txt",
-                "validation_report.txt",
-            }:
-                add_dashboard_file(
-                    path, arcname=f"dashboard/{path.relative_to(bundle_root)}"
-                )
-        bundle.write(plotly_bundle, arcname=PLOTLY_ARCHIVE_PATH)
-        return
-
-    # Dashboard pages refer to chart bundles with ../chart_bundles/. Keep that
-    # sibling relationship so extracting the ZIP preserves the HTML links.
-    dashboard_root = dashboard_directory.parent
-    chart_directory = dashboard_root / "chart_bundles"
-    supporting_directory = dashboard_root / "supporting_files"
-    if not chart_directory.is_dir():
-        dashboard_root = dashboard_directory
-        chart_directory = dashboard_root / "chart_bundles"
-        supporting_directory = dashboard_root / "supporting_files"
-    for path in sorted(dashboard_directory.rglob("*")):
-        if path.is_file():
-            add_dashboard_file(
-                path,
-                arcname=f"dashboard/dashboards/{path.relative_to(dashboard_directory)}",
+    _, entries, dashboard_sets = _dashboard_archive_entries(
+        dashboard_directory,
+        include_run_diagnostics=include_run_diagnostics,
+    )
+    for path, archive_path in sorted(entries.items(), key=lambda item: item[1]):
+        if path.suffix.casefold() == ".html":
+            page_html = _rewrite_archive_html(
+                path.read_text(encoding="utf-8"),
+                source_path=path,
+                archive_path=archive_path,
+                entries=entries,
             )
-    if chart_directory.is_dir():
-        for path in sorted(chart_directory.rglob("*")):
-            if path.is_file():
-                bundle.write(
-                    path,
-                    arcname=f"dashboard/chart_bundles/{path.relative_to(chart_directory)}",
-                )
-    if supporting_directory.is_dir():
-        for path in sorted(supporting_directory.rglob("*")):
-            if path.is_file():
-                bundle.write(
-                    path,
-                    arcname=(
-                        "dashboard/supporting_files/"
-                        f"{path.relative_to(supporting_directory)}"
-                    ),
-                )
-    shortcut = dashboard_root / "OPEN THE DASHBOARD.html"
-    if shortcut.is_file():
-        bundle.write(shortcut, arcname="dashboard/OPEN THE DASHBOARD.html")
+            bundle.writestr(archive_path, page_html.encode("utf-8"))
+        else:
+            bundle.write(path, arcname=archive_path)
     bundle.write(plotly_bundle, arcname=PLOTLY_ARCHIVE_PATH)
+    return {
+        "dashboard_sets": dashboard_sets,
+        "entry_count": len(entries) + 1,
+        "plotly_archive_path": PLOTLY_ARCHIVE_PATH,
+        "run_diagnostics_included": include_run_diagnostics,
+    }
 
 
 def _plotly_offline_bundle_path() -> Path:
@@ -2205,25 +2304,37 @@ def _plotly_offline_bundle_path() -> Path:
     return bundle_path
 
 
-def _add_uploaded_exports(bundle: zipfile.ZipFile, uploaded_export_paths: list[Path]) -> None:
-    """Add each source balance export once, retaining a usable original filename."""
-    written_names: set[str] = set()
+def _add_uploaded_exports(
+    bundle: zipfile.ZipFile, uploaded_export_paths: list[Path]
+) -> list[dict[str, str]]:
+    """Add source exports under canonical names and return manifest records."""
     seen_paths: set[Path] = set()
+    records: list[dict[str, str]] = []
     for export_path in uploaded_export_paths:
         export_path = Path(export_path)
         resolved_path = export_path.resolve()
         if resolved_path in seen_paths or not export_path.is_file():
             continue
         seen_paths.add(resolved_path)
-        filename = export_path.name
-        suffix = export_path.suffix
-        stem = export_path.stem
-        number = 2
-        while filename.casefold() in written_names:
-            filename = f"{stem}_{number}{suffix}"
-            number += 1
-        written_names.add(filename.casefold())
-        bundle.write(export_path, arcname=f"uploaded_balance_exports/{filename}")
+        archive_path = f"in/source_{len(records) + 1:02d}{export_path.suffix.lower()}"
+        bundle.write(export_path, arcname=archive_path)
+        records.append(
+            {
+                "archive_path": archive_path,
+                "original_filename": export_path.name,
+            }
+        )
+    return records
+
+
+def _write_archive_manifest(
+    bundle: zipfile.ZipFile, manifest: dict[str, object]
+) -> None:
+    """Write human-readable metadata for canonical archive filenames."""
+    bundle.writestr(
+        ARCHIVE_MANIFEST_PATH,
+        json.dumps(manifest, indent=2, sort_keys=True).encode("utf-8"),
+    )
 
 
 def _write_dashboard_bundle(
@@ -2234,8 +2345,15 @@ def _write_dashboard_bundle(
 ) -> None:
     """Write an offline dashboard archive with its uploaded balance exports."""
     with zipfile.ZipFile(bundle_path, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
-        _add_uploaded_exports(bundle, uploaded_export_paths or [])
-        _add_dashboard_files(bundle, dashboard_directory)
+        manifest: dict[str, object] = {
+            "format_version": 1,
+            "archive_type": "dashboard_review",
+            "uploaded_balance_exports": _add_uploaded_exports(
+                bundle, uploaded_export_paths or []
+            ),
+        }
+        manifest["dashboard"] = _add_dashboard_files(bundle, dashboard_directory)
+        _write_archive_manifest(bundle, manifest)
 
 
 def _dashboard_pages(dashboard_directory: Path) -> list[str]:

@@ -1,7 +1,9 @@
 """Regression tests for temporary result cleanup and refresh restoration."""
 
+import json
 import os
 import time
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -62,12 +64,154 @@ def test_complete_run_archive_name_identifies_run_and_creation_time() -> None:
     assert name == "05_PRC_Target_complete_run_archive_120826_220405.zip"
 
 
-def test_dashboard_archive_name_identifies_run_and_creation_time() -> None:
+def test_dashboard_archive_name_is_recognisable_but_bounded() -> None:
     created_at = datetime(2026, 8, 12, 13, 4, 5, tzinfo=timezone.utc)
 
-    name = app._dashboard_archive_name("05_PRC", "Target", created_at=created_at)
+    name = app._dashboard_archive_name(
+        "05_PRC_with_an_unnecessarily_long_economy_name",
+        "Target scenario with a long label",
+        created_at=created_at,
+    )
 
-    assert name == "05_PRC_Target_dashboard_archive_120826_220405.zip"
+    assert name == "05_PRC_with_an_u_Target_scena_dashboard_120826_220405.zip"
+    assert len(name) <= 60
+
+
+def test_dashboard_only_archive_does_not_require_diagnostics(tmp_path) -> None:
+    """A dashboard-only run still produces a self-contained archive."""
+    dashboard_directory = tmp_path / "dashboard"
+    dashboard_directory.mkdir()
+    (dashboard_directory / "index.html").write_text("dashboard", encoding="utf-8")
+    log_directory = tmp_path / "logs"
+    log_directory.mkdir()
+    (log_directory / "run.log").write_text("complete", encoding="utf-8")
+    bundle_path = tmp_path / "dashboard-only.zip"
+
+    app._write_diagnostics_bundle(
+        bundle_path=bundle_path,
+        workbook_paths=[],
+        diagnostics_directory=None,
+        run_directory=tmp_path,
+        dashboard_directory=dashboard_directory,
+        log_directory=log_directory,
+    )
+
+    with zipfile.ZipFile(bundle_path) as bundle:
+        assert set(bundle.namelist()) == {
+            "d/0/p/index.html",
+            "a/plotly.min.js",
+            "l/run.log",
+            "archive_manifest.json",
+        }
+
+
+def test_dashboard_archive_compacts_paths_and_rewrites_offline_links(
+    monkeypatch, tmp_path
+) -> None:
+    """The review ZIP remains portable and self-describing."""
+    rendered = tmp_path / "rendered"
+    primary = rendered / "20USA"
+    comparison = rendered / "20USA__esto_extended_leap"
+    diagnostics = rendered / "diagnostics"
+    for root in (primary, comparison):
+        (root / "dashboards").mkdir(parents=True)
+        (root / "chart_bundles").mkdir()
+        (root / "supporting_files").mkdir()
+        (root / "chart_bundles" / "power__charts.js").write_text(
+            "window.charts = {};", encoding="utf-8"
+        )
+    (diagnostics / "dashboards").mkdir(parents=True)
+    (diagnostics / "supporting_files").mkdir()
+    (diagnostics / "supporting_files" / "source_to_common_esto_map.csv").write_text(
+        "source,target\n", encoding="utf-8"
+    )
+    (diagnostics / "dashboards" / "mapping_diagnostics.html").write_text(
+        '<a href="../supporting_files/source_to_common_esto_map.csv">mapping</a>',
+        encoding="utf-8",
+    )
+    (rendered / "mapping_chain").mkdir()
+    (rendered / "mapping_chain" / "raw_leap_results.csv").write_text(
+        "not needed for dashboard review", encoding="utf-8"
+    )
+    (primary / "dashboards" / "index.html").write_text(
+        '<meta http-equiv="refresh" content="0; url=power.html">', encoding="utf-8"
+    )
+    (primary / "dashboards" / "power.html").write_text(
+        "\n".join(
+            (
+                f'<script src="{app.PLOTLY_CDN_URL}"></script>',
+                '<script src="../chart_bundles/power__charts.js"></script>',
+                '<a href="../../20USA__esto_extended_leap/dashboards/power.html">basis</a>',
+                '<a href="../../diagnostics/dashboards/mapping_diagnostics.html">diagnostics</a>',
+            )
+        ),
+        encoding="utf-8",
+    )
+    (comparison / "dashboards" / "index.html").write_text(
+        '<a href="power.html">Power</a>', encoding="utf-8"
+    )
+    (comparison / "dashboards" / "power.html").write_text(
+        '<script src="../chart_bundles/power__charts.js"></script>', encoding="utf-8"
+    )
+    (rendered / "OPEN THE DASHBOARD.html").write_text(
+        '<meta http-equiv="refresh" content="0; url=20USA/dashboards/index.html">',
+        encoding="utf-8",
+    )
+    plotly_bundle = tmp_path / "plotly.min.js"
+    plotly_bundle.write_text("window.Plotly = {};", encoding="utf-8")
+    monkeypatch.setattr(app, "_plotly_offline_bundle_path", lambda: plotly_bundle)
+    upload = tmp_path / "long_source_workbook_name.xlsx"
+    upload.write_bytes(b"workbook")
+    bundle_path = tmp_path / "dashboard.zip"
+
+    app._write_dashboard_bundle(
+        bundle_path=bundle_path,
+        dashboard_directory=primary / "dashboards",
+        uploaded_export_paths=[upload],
+    )
+
+    with zipfile.ZipFile(bundle_path) as bundle:
+        names = bundle.namelist()
+        assert max(map(len, names)) <= 80
+        assert "mapping_chain/raw_leap_results.csv" not in names
+        assert "m/raw_leap_results.csv" not in names
+        assert "in/source_01.xlsx" in names
+        assert "a/plotly.min.js" in names
+        assert "OPEN THE DASHBOARD.html" in names
+        assert "d/0/p/index.html" in names
+        assert "archive_manifest.json" in names
+        page = bundle.read("d/0/p/power.html").decode("utf-8")
+        assert 'src="../../../a/plotly.min.js"' in page
+        assert 'src="../c/power__charts.js"' in page
+        assert 'href="../../1/p/power.html"' in page
+        assert 'href="../../../x/p/mapping_diagnostics.html"' in page
+        assert app.PLOTLY_CDN_URL not in page
+        diagnostics_page = bundle.read("x/p/mapping_diagnostics.html").decode("utf-8")
+        assert 'href="../s/source_to_common_esto_map.csv"' in diagnostics_page
+        shortcut = bundle.read("OPEN THE DASHBOARD.html").decode("utf-8")
+        assert "url=d/0/p/index.html" in shortcut
+        manifest = json.loads(bundle.read("archive_manifest.json"))
+        assert manifest["archive_type"] == "dashboard_review"
+        assert manifest["uploaded_balance_exports"] == [
+            {
+                "archive_path": "in/source_01.xlsx",
+                "original_filename": upload.name,
+            }
+        ]
+        assert manifest["dashboard"]["run_diagnostics_included"] is False
+
+    complete_path = tmp_path / "complete.zip"
+    app._write_diagnostics_bundle(
+        bundle_path=complete_path,
+        workbook_paths=[],
+        diagnostics_directory=None,
+        run_directory=tmp_path,
+        dashboard_directory=primary / "dashboards",
+    )
+    with zipfile.ZipFile(complete_path) as bundle:
+        assert "m/raw_leap_results.csv" in bundle.namelist()
+        manifest = json.loads(bundle.read("archive_manifest.json"))
+        assert manifest["dashboard"]["run_diagnostics_included"] is True
 
 
 def test_saved_dashboard_labels_use_details_then_time_to_disambiguate() -> None:

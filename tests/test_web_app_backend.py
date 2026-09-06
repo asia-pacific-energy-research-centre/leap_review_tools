@@ -132,18 +132,19 @@ def test_diagnostics_bundle_contains_workbooks_diagnostics_dashboard_and_logs(
 
     with zipfile.ZipFile(bundle) as archive:
         assert set(archive.namelist()) == {
-            "uploaded_balance_exports/05_PRC_Target.xlsx",
-            "workbooks/review.xlsx",
-            "diagnostics/leap_balance_source_review.csv",
-            "diagnostics/leap_export_readiness_findings.parquet",
-            "diagnostics/leap_export_readiness_findings.parquet.manifest.json",
-            "run_manifest.json",
-            "dashboard/dashboards/index.html",
-            "dashboard/dashboards/page.html",
-            "dashboard/chart_bundles/page.js",
-            "dashboard/OPEN THE DASHBOARD.html",
-            "dashboard/assets/plotly.min.js",
-            "logs/run.log",
+            "in/source_01.xlsx",
+            "w/review_01.xlsx",
+            "r/leap_balance_source_review.csv",
+            "r/leap_export_readiness_findings.parquet",
+            "r/leap_export_readiness_findings.parquet.manifest.json",
+            "r/run_manifest.json",
+            "d/0/p/index.html",
+            "d/0/p/page.html",
+            "d/0/c/page.js",
+            "OPEN THE DASHBOARD.html",
+            "a/plotly.min.js",
+            "l/run.log",
+            "archive_manifest.json",
         }
 
 
@@ -181,21 +182,22 @@ def test_dashboard_bundle_contains_dashboard_and_uploaded_balance_exports(
 
     with zipfile.ZipFile(archive_path) as archive:
         assert set(archive.namelist()) == {
-            "uploaded_balance_exports/05_PRC_Target.xlsx",
-            "uploaded_balance_exports/05_PRC_Target_2.xlsx",
-            "dashboard/dashboards/energy_balance_overview.html",
-            "dashboard/chart_bundles/energy_balance_overview.js",
-            "dashboard/supporting_files/chart_manifest.json",
-            "dashboard/OPEN THE DASHBOARD.html",
-            "dashboard/assets/plotly.min.js",
+            "in/source_01.xlsx",
+            "in/source_02.xlsx",
+            "d/0/p/energy_balance_overview.html",
+            "d/0/c/energy_balance_overview.js",
+            "d/0/s/chart_manifest.json",
+            "OPEN THE DASHBOARD.html",
+            "a/plotly.min.js",
+            "archive_manifest.json",
         }
-        assert archive.read("uploaded_balance_exports/05_PRC_Target.xlsx") == b"first export"
-        assert archive.read("uploaded_balance_exports/05_PRC_Target_2.xlsx") == b"second export"
+        assert archive.read("in/source_01.xlsx") == b"first export"
+        assert archive.read("in/source_02.xlsx") == b"second export"
         page_html = archive.read(
-            "dashboard/dashboards/energy_balance_overview.html"
+            "d/0/p/energy_balance_overview.html"
         ).decode("utf-8")
         assert "https://cdn.plot.ly" not in page_html
-        assert 'src="../../assets/plotly.min.js"' in page_html
+        assert 'src="../../../a/plotly.min.js"' in page_html
 
 
 def test_single_scenario_dashboard_is_pinned_and_loses_its_toggle():
