@@ -3651,24 +3651,23 @@ def selected_version_uploads(
     return original, new
 
 
-def _matching_version_pair(uploads: list[ExportUpload]) -> list[ExportUpload]:
-    """Return the one eligible two-file version pair, if there is one."""
+def _matching_version_candidates(uploads: list[ExportUpload]) -> list[ExportUpload]:
+    """Return two or more uploads eligible for pairwise version comparison."""
     readable = [upload for upload in uploads if upload.ok]
-    if len(readable) != 2:
+    if len(readable) < 2:
         return []
-    first, second = readable
     identity = lambda upload: (upload.economy, upload.scenario, upload.years)
-    return readable if identity(first) == identity(second) else []
+    return readable if len({identity(upload) for upload in readable}) == 1 else []
 
 
 def version_comparison_control_updates(
     balance_export_workbook: object,
 ) -> tuple[object, object, object, bool, str, object]:
-    """Open the version prompt only for one matching pair of exports."""
+    """Open the version prompt for a compatible set of candidate exports."""
     import gradio as gr
 
-    pair = _matching_version_pair(read_uploads(balance_export_workbook))
-    if not pair:
+    candidates = _matching_version_candidates(read_uploads(balance_export_workbook))
+    if not candidates:
         return (
             gr.Column(visible=False),
             gr.Dropdown(),
@@ -3677,7 +3676,7 @@ def version_comparison_control_updates(
             "",
             gr.Button(interactive=False),
         )
-    names = [upload.path.name for upload in pair]
+    names = [upload.path.name for upload in candidates]
     return (
         gr.Column(visible=True),
         gr.Dropdown(choices=names, value=names[0]),
@@ -3703,21 +3702,24 @@ def version_comparison_selection_update(
 
 
 def synchronise_version_comparison_role(
-    changed_name: object, balance_export_workbook: object
+    changed_name: object, other_name: object, balance_export_workbook: object
 ) -> tuple[object, object, str]:
-    """Keep the other role on the remaining file in a two-file comparison."""
+    """Keep the other role distinct while preserving a valid selection."""
     import gradio as gr
 
-    pair = _matching_version_pair(read_uploads(balance_export_workbook))
-    names = [upload.path.name for upload in pair]
+    candidates = _matching_version_candidates(read_uploads(balance_export_workbook))
+    names = [upload.path.name for upload in candidates]
     selected = str(changed_name or "")
-    if len(names) != 2 or selected not in names:
+    other = str(other_name or "")
+    if len(names) < 2 or selected not in names:
         return (
             gr.Dropdown(choices=names),
             gr.Button(interactive=False),
             "<span class='version-selection-error'>Choose a version file.</span>",
         )
-    remaining = names[1] if selected == names[0] else names[0]
+    remaining = other if other in names and other != selected else next(
+        name for name in names if name != selected
+    )
     return (
         gr.Dropdown(choices=names, value=remaining),
         gr.Button(interactive=True),
@@ -3852,17 +3854,16 @@ def inspect_uploaded_export(
             gr.Checkbox(),
         )
 
-    # A matching pair is held neutral while the popup asks whether it is a
-    # version comparison. Do not label either file as unused before the user
-    # has made that choice.
-    version_pair = _matching_version_pair(uploads)
-    superseded = {} if version_pair else duplicate_uploads(uploads)
-    effective = uploads if version_pair else [
+    # A compatible version set is held neutral while the popup asks which two
+    # files to compare. Do not label candidates as unused before that choice.
+    version_candidates = _matching_version_candidates(uploads)
+    superseded = {} if version_candidates else duplicate_uploads(uploads)
+    effective = uploads if version_candidates else [
         upload for upload in uploads if upload.path.name not in superseded
     ]
     grouped = group_by_economy(effective)
     economies = list(grouped)
-    multiple = len(effective) > 1 and not version_pair
+    multiple = len(effective) > 1 and not version_candidates
     readable = [upload for upload in effective if upload.ok]
     unnamed = [upload for upload in readable if not upload.economy]
 
@@ -5582,7 +5583,11 @@ def create_app():
         )
         original_export_name.change(
             fn=synchronise_version_comparison_role,
-            inputs=[original_export_name, balance_export_workbook],
+            inputs=[
+                original_export_name,
+                new_export_name,
+                balance_export_workbook,
+            ],
             outputs=[
                 new_export_name,
                 confirm_version_button,
@@ -5591,7 +5596,11 @@ def create_app():
         )
         new_export_name.change(
             fn=synchronise_version_comparison_role,
-            inputs=[new_export_name, balance_export_workbook],
+            inputs=[
+                new_export_name,
+                original_export_name,
+                balance_export_workbook,
+            ],
             outputs=[
                 original_export_name,
                 confirm_version_button,

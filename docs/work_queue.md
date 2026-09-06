@@ -149,6 +149,10 @@
   replicas do not share their temporary filesystem. The queued API also
   exposes `cancel_dashboard_archive` so automation can stop a run at the next
   safe workflow boundary instead of restarting the whole service.
+- 2026-09-07: Allow a compatible set of two or more same-economy,
+  same-scenario, same-year exports to open Version comparison. Both role
+  selectors list every candidate, retain a valid deliberately selected pair,
+  and still prevent choosing the same file for both roles.
 
 ## Planned
 

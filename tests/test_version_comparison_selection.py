@@ -7,7 +7,7 @@ import pytest
 from web_app import app as app_module
 from web_app.app import (
     ExportUpload,
-    _matching_version_pair,
+    _matching_version_candidates,
     _run_version_comparison_pair,
     _uploads_table,
     _esto_vintage_choices,
@@ -31,6 +31,11 @@ def test_selected_versions_must_share_identity() -> None:
     other = ExportUpload(Path("other.xlsx"), "01_AUS", "Target", (2022, 2024))
     with pytest.raises(ValueError, match="same economy"):
         selected_version_uploads([original, other], "original.xlsx", "other.xlsx")
+
+    third = ExportUpload(Path("third.xlsx"), "01_AUS", "Target", (2023, 2024))
+    assert selected_version_uploads(
+        [original, new, third], "new.xlsx", "third.xlsx"
+    ) == (new, third)
 
 
 def test_version_prompt_confirm_requires_two_distinct_files() -> None:
@@ -57,14 +62,21 @@ def test_version_roles_are_shown_in_the_existing_upload_rows() -> None:
     assert "2022–2060" in readout
 
 
-def test_only_one_matching_two_file_upload_opens_the_version_prompt() -> None:
+def test_two_or_more_matching_uploads_open_the_version_prompt() -> None:
     first = ExportUpload(Path("first.xlsx"), "01_AUS", "Target", (2022, 2060))
     second = ExportUpload(Path("second.xlsx"), "01_AUS", "Target", (2022, 2060))
     other = ExportUpload(Path("other.xlsx"), "01_AUS", "Reference", (2022, 2060))
 
-    assert _matching_version_pair([first, second]) == [first, second]
-    assert _matching_version_pair([first, other]) == []
-    assert _matching_version_pair([first, second, other]) == []
+    third = ExportUpload(Path("third.xlsx"), "01_AUS", "Target", (2022, 2060))
+
+    assert _matching_version_candidates([first, second]) == [first, second]
+    assert _matching_version_candidates([first, second, third]) == [
+        first,
+        second,
+        third,
+    ]
+    assert _matching_version_candidates([first, other]) == []
+    assert _matching_version_candidates([first, second, other]) == []
 
 
 def test_matching_upload_selection_activates_comparison_prompt(monkeypatch) -> None:
@@ -92,16 +104,49 @@ def test_changing_either_version_role_moves_the_other_to_the_remaining_file(
     monkeypatch.setattr(app_module, "read_uploads", lambda uploads: [first, second])
 
     new_role, confirm, note = synchronise_version_comparison_role(
-        "second.xlsx", ["ignored"]
+        "second.xlsx", "second.xlsx", ["ignored"]
     )
     assert new_role.value == "first.xlsx"
     assert confirm.interactive is True
     assert note == ""
 
     original_role, confirm, note = synchronise_version_comparison_role(
-        "first.xlsx", ["ignored"]
+        "first.xlsx", "first.xlsx", ["ignored"]
     )
     assert original_role.value == "second.xlsx"
+    assert confirm.interactive is True
+    assert note == ""
+
+
+def test_version_set_lists_all_candidates_and_preserves_distinct_other_role(
+    monkeypatch,
+) -> None:
+    candidates = [
+        ExportUpload(Path(name), "01_AUS", "Target", (2022, 2060))
+        for name in ("v1.xlsx", "v2.xlsx", "v3.xlsx", "v4.xlsx")
+    ]
+    monkeypatch.setattr(app_module, "read_uploads", lambda uploads: candidates)
+
+    controls, original, new, compare_versions, note, confirm = (
+        version_comparison_control_updates(["ignored"])
+    )
+
+    assert controls.visible is True
+    assert [choice[1] for choice in original.choices] == [
+        "v1.xlsx",
+        "v2.xlsx",
+        "v3.xlsx",
+        "v4.xlsx",
+    ]
+    assert new.value == "v2.xlsx"
+    assert compare_versions is False
+    assert note == ""
+    assert confirm.interactive is True
+
+    other_role, confirm, note = synchronise_version_comparison_role(
+        "v4.xlsx", "v2.xlsx", ["ignored"]
+    )
+    assert other_role.value == "v2.xlsx"
     assert confirm.interactive is True
     assert note == ""
 
