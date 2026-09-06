@@ -22,6 +22,7 @@ import tempfile
 import threading
 import time
 import zipfile
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -2905,6 +2906,22 @@ RUN_JOBS_LOCK = threading.Lock()
 # process memory and temporary publication directories.
 RUN_EXECUTION_LOCK = threading.Lock()
 JOB_RETENTION_SECONDS = 6 * 60 * 60
+JOB_STATE_ROOT = Path(
+    os.getenv(
+        "LEAP_DASHBOARD_JOB_STORE",
+        str(Path(tempfile.gettempdir()) / "leap_balance_review_job_state"),
+    )
+)
+JOB_STATE_FIELDS = (
+    "durable",
+    "state",
+    "started",
+    "finished",
+    "updated",
+    "message",
+    "summary_json",
+    "archive_path",
+)
 
 
 class RunCancelled(Exception):
@@ -2922,18 +2939,194 @@ def _forget_stale_jobs() -> None:
             and float(job.get("finished") or 0) < cutoff
         ]:
             RUN_JOBS.pop(job_id, None)
+    if not JOB_STATE_ROOT.is_dir():
+        return
+    for state_path in JOB_STATE_ROOT.glob("*.json"):
+        try:
+            with _exclusive_file_lock(state_path.with_suffix(".lock")):
+                record = _persisted_job_snapshot(state_path.stem)
+                if record is None:
+                    continue
+                state = record.get("state")
+                updated = float(
+                    record.get("updated") or record.get("started") or 0
+                )
+                if state in {"running", "cancel_requested"} and updated < cutoff:
+                    record.update(
+                        durable=True,
+                        state="failed",
+                        finished=time.time(),
+                        message=(
+                            "The worker stopped before this dashboard run finished."
+                        ),
+                    )
+                    _persist_job_state(state_path.stem, record)
+                    continue
+                if (
+                    state not in {"running", "cancel_requested"}
+                    and float(record.get("finished") or 0) < cutoff
+                ):
+                    state_path.unlink(missing_ok=True)
+                    state_path.with_suffix(".zip").unlink(missing_ok=True)
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+
+
+def _job_state_path(job_id: str) -> Path | None:
+    """Return a safe shared state path for one opaque job identifier."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", job_id):
+        return None
+    return JOB_STATE_ROOT / f"{job_id}.json"
+
+
+@contextmanager
+def _exclusive_file_lock(
+    lock_path: Path, *, progress: object = None, cancellation_check: object = None
+):
+    """Hold a cross-process advisory lock on Windows or POSIX."""
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as lock_stream:
+        lock_stream.seek(0, os.SEEK_END)
+        if lock_stream.tell() == 0:
+            lock_stream.write(b"0")
+            lock_stream.flush()
+        acquired = False
+        while not acquired:
+            try:
+                lock_stream.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(lock_stream.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(lock_stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+            except OSError:
+                _raise_if_cancelled(cancellation_check)
+                if callable(progress):
+                    progress("Waiting for the earlier dashboard run to finish.")
+                time.sleep(0.5)
+        try:
+            yield
+        finally:
+            lock_stream.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(lock_stream.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock_stream.fileno(), fcntl.LOCK_UN)
+
+
+def _persist_job_state(job_id: str, job: dict[str, object]) -> None:
+    """Atomically publish the API-visible portion of a job across workers."""
+    if not job.get("durable"):
+        return
+    state_path = _job_state_path(job_id)
+    if state_path is None:
+        return
+    record = {field: job.get(field) for field in JOB_STATE_FIELDS}
+    record["updated"] = time.time()
+    result = job.get("result") or ()
+    if isinstance(result, (list, tuple)) and len(result) == 8:
+        record["summary_json"] = str(result[0] or "")
+        record["archive_path"] = str(result[7] or "")
+    JOB_STATE_ROOT.mkdir(parents=True, exist_ok=True)
+    temporary = state_path.with_name(
+        f".{state_path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+    )
+    with temporary.open("w", encoding="utf-8") as stream:
+        json.dump(record, stream, sort_keys=True)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, state_path)
+
+
+def _persisted_job_snapshot(job_id: str) -> dict[str, object] | None:
+    """Read a job record created by another request worker."""
+    state_path = _job_state_path(job_id)
+    if state_path is None or not state_path.is_file():
+        return None
+    try:
+        record = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return record if isinstance(record, dict) else None
 
 
 def _job_snapshot(job_id: str) -> dict[str, object] | None:
     with RUN_JOBS_LOCK:
         job = RUN_JOBS.get(job_id)
-        return dict(job) if job else None
+        if job:
+            return dict(job)
+    return _persisted_job_snapshot(job_id)
 
 
 def _set_job(job_id: str, **fields: object) -> None:
+    state_path = _job_state_path(job_id)
+    if state_path is None:
+        return
     with RUN_JOBS_LOCK:
-        job = RUN_JOBS.setdefault(job_id, {})
-        job.update(fields)
+        local_durable = bool((RUN_JOBS.get(job_id) or {}).get("durable"))
+    if not (fields.get("durable") or local_durable or state_path.is_file()):
+        with RUN_JOBS_LOCK:
+            job = RUN_JOBS.setdefault(job_id, {})
+            job.update(fields)
+        return
+    with _exclusive_file_lock(state_path.with_suffix(".lock")):
+        persisted = _persisted_job_snapshot(job_id) or {}
+        with RUN_JOBS_LOCK:
+            local = RUN_JOBS.get(job_id) or {}
+            job = dict(persisted)
+            job.update(local)
+            job.update(fields)
+            if (
+                persisted.get("state") == "cancel_requested"
+                and fields.get("state") in {None, "running"}
+            ):
+                job["state"] = "cancel_requested"
+                job["message"] = persisted.get("message")
+            elif (
+                persisted.get("state") == "cancel_requested"
+                and fields.get("state") == "done"
+            ):
+                job.update(
+                    state="cancelled",
+                    message="Run cancelled. No new results were saved.",
+                    result=None,
+                )
+            RUN_JOBS[job_id] = job
+            snapshot = dict(job)
+        _persist_job_state(job_id, snapshot)
+
+
+def _publish_job_archive(job_id: str, result: tuple[object, ...]) -> tuple[object, ...]:
+    """Publish an API archive before marking its durable job record done."""
+    if len(result) != 8:
+        return result
+    source = Path(str(result[7] or ""))
+    if not source.is_file():
+        return result
+    state_path = _job_state_path(job_id)
+    if state_path is None:
+        return result
+    JOB_STATE_ROOT.mkdir(parents=True, exist_ok=True)
+    target = state_path.with_suffix(".zip")
+    temporary = target.with_name(
+        f".{target.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+    )
+    with source.open("rb") as input_stream, temporary.open("wb") as output_stream:
+        shutil.copyfileobj(input_stream, output_stream)
+        output_stream.flush()
+        os.fsync(output_stream.fileno())
+    os.replace(temporary, target)
+    published = list(result)
+    published[7] = str(target)
+    return tuple(published)
 
 
 def _job_cancel_requested(job_id: str) -> bool:
@@ -2941,13 +3134,29 @@ def _job_cancel_requested(job_id: str) -> bool:
     with RUN_JOBS_LOCK:
         job = RUN_JOBS.get(job_id) or {}
         signal = job.get("cancel_signal")
-        return bool(isinstance(signal, threading.Event) and signal.is_set())
+        if isinstance(signal, threading.Event) and signal.is_set():
+            return True
+    persisted = _persisted_job_snapshot(job_id) or {}
+    return persisted.get("state") == "cancel_requested"
 
 
 def _raise_if_cancelled(cancellation_check: object = None) -> None:
     """Stop at a safe boundary when the supplied cancellation check is true."""
     if callable(cancellation_check) and cancellation_check():
         raise RunCancelled("Run cancelled by the user.")
+
+
+@contextmanager
+def _interprocess_run_lock(
+    *, progress: object = None, cancellation_check: object = None
+):
+    """Serialize heavy builds across workers sharing the configured job store."""
+    with _exclusive_file_lock(
+        JOB_STATE_ROOT / "dashboard-build.lock",
+        progress=progress,
+        cancellation_check=cancellation_check,
+    ):
+        yield
 
 
 def _run_build_serialized(
@@ -2962,11 +3171,14 @@ def _run_build_serialized(
         if callable(progress):
             progress("Waiting for the earlier dashboard run to finish.")
     try:
-        return build_review_from_export(
-            progress=progress,
-            cancellation_check=cancellation_check,
-            **kwargs,
-        )
+        with _interprocess_run_lock(
+            progress=progress, cancellation_check=cancellation_check
+        ):
+            return build_review_from_export(
+                progress=progress,
+                cancellation_check=cancellation_check,
+                **kwargs,
+            )
     finally:
         RUN_EXECUTION_LOCK.release()
 
@@ -2996,6 +3208,7 @@ def start_run(
     compare_versions: object = False,
     original_export_name: object = None,
     new_export_name: object = None,
+    durable_api_job: bool = False,
 ) -> tuple[str, object]:
     """Begin a build in the background and return its job id.
 
@@ -3025,6 +3238,7 @@ def start_run(
         ),
         result=None,
         cancel_signal=threading.Event(),
+        durable=durable_api_job,
     )
 
     def worker() -> None:
@@ -3050,6 +3264,8 @@ def start_run(
                 new_export_name=new_export_name,
             )
             _raise_if_cancelled(lambda: _job_cancel_requested(job_id))
+            if durable_api_job:
+                result = _publish_job_archive(job_id, result)
             _set_job(
                 job_id, state="done", finished=time.time(), result=result, message=""
             )
@@ -3086,18 +3302,20 @@ def cancel_run(job_id: object) -> tuple[object, str]:
     """Request cancellation and disable the control until the worker stops."""
     import gradio as gr
 
-    key = str(job_id or "")
+    key = str(job_id or "").strip()
+    snapshot = _job_snapshot(key)
+    if not snapshot or snapshot.get("state") not in {"running", "cancel_requested"}:
+        return gr.Button(visible=False), gr.skip()
     with RUN_JOBS_LOCK:
         job = RUN_JOBS.get(key)
-        if not job or job.get("state") not in {"running", "cancel_requested"}:
-            return gr.Button(visible=False), gr.skip()
-        signal = job.get("cancel_signal")
+        signal = (job or {}).get("cancel_signal")
         if isinstance(signal, threading.Event):
             signal.set()
-        job.update(
-            state="cancel_requested",
-            message="Cancelling after the current step finishes safely.",
-        )
+    _set_job(
+        key,
+        state="cancel_requested",
+        message="Cancelling after the current step finishes safely.",
+    )
     return (
         gr.Button("Cancelling…", visible=True, interactive=False),
         _status_html("Cancelling after the current step finishes safely.", tone="is-step"),
@@ -4447,6 +4665,7 @@ def start_dashboard_archive_api(
         [],
         True,
         esto_vintage_choice,
+        durable_api_job=True,
     )
     if not job_id:
         raise RuntimeError("Dashboard generation did not start.")
@@ -4457,10 +4676,45 @@ def start_dashboard_archive_api(
     }
 
 
+def cancel_dashboard_archive_api(job_id: object) -> dict[str, object]:
+    """Request safe cancellation of one queued API dashboard job."""
+    key = str(job_id or "").strip()
+    job = _job_snapshot(key)
+    if job is None:
+        return {
+            "api_contract": "dashboard_archive_job/v1",
+            "job_id": key,
+            "state": "unknown",
+            "message": "This job id was not found or its retained record expired.",
+        }
+    state = str(job.get("state") or "unknown")
+    if state not in {"running", "cancel_requested"}:
+        return {
+            "api_contract": "dashboard_archive_job/v1",
+            "job_id": key,
+            "state": state,
+            "message": str(job.get("message") or ""),
+        }
+    with RUN_JOBS_LOCK:
+        local_job = RUN_JOBS.get(key) or {}
+        signal = local_job.get("cancel_signal")
+        if isinstance(signal, threading.Event):
+            signal.set()
+    message = "Cancelling after the current step finishes safely."
+    _set_job(key, state="cancel_requested", message=message)
+    return {
+        "api_contract": "dashboard_archive_job/v1",
+        "job_id": key,
+        "state": "cancel_requested",
+        "message": message,
+    }
+
+
 def dashboard_archive_status_api(
     job_id: object,
 ) -> tuple[dict[str, object], str | None]:
     """Return one short-lived status response for a background API job."""
+    _forget_stale_jobs()
     key = str(job_id or "").strip()
     job = _job_snapshot(key)
     if job is None:
@@ -4469,7 +4723,7 @@ def dashboard_archive_status_api(
                 "api_contract": "dashboard_archive_job/v1",
                 "job_id": key,
                 "state": "unknown",
-                "message": "This job is not available on the current server instance.",
+                "message": "This job id was not found or its retained record expired.",
             },
             None,
         )
@@ -4486,16 +4740,20 @@ def dashboard_archive_status_api(
     if state != "done":
         return status, None
     result = job.get("result") or ()
-    if len(result) != 8:
-        status.update(state="failed", message="The run finished without outputs.")
-        return status, None
-    archive_path = str(result[7] or "").strip()
+    archive_path = str(job.get("archive_path") or "").strip()
+    summary_text = str(job.get("summary_json") or "").strip()
+    if isinstance(result, (list, tuple)) and len(result) == 8:
+        archive_path = str(result[7] or "").strip()
+        summary_text = str(result[0] or "").strip()
     if not archive_path or not Path(archive_path).is_file():
         status.update(state="failed", message="The run produced no dashboard archive.")
         return status, None
-    summary_text = str(result[0] or "").strip()
     if summary_text:
-        status["summary"] = json.loads(summary_text)
+        try:
+            status["summary"] = json.loads(summary_text)
+        except json.JSONDecodeError:
+            status.update(state="failed", message="The run summary is invalid.")
+            return status, None
     return status, archive_path
 
 
@@ -5100,6 +5358,7 @@ def create_app():
         api_job_download = gr.File(visible=False)
         api_start_dashboard = gr.Button(visible=False)
         api_poll_dashboard = gr.Button(visible=False)
+        api_cancel_dashboard = gr.Button(visible=False)
         # A Gradio timer ticks in the browser, and a browser throttles or
         # suspends timers in a tab that is not being looked at. So a run that
         # finished while the user was in another window stays "running" on
@@ -5427,6 +5686,13 @@ def create_app():
             inputs=api_job_id,
             outputs=[api_job_status, api_job_download],
             api_name="dashboard_archive_status",
+            queue=False,
+        )
+        api_cancel_dashboard.click(
+            fn=cancel_dashboard_archive_api,
+            inputs=api_job_id,
+            outputs=api_job_status,
+            api_name="cancel_dashboard_archive",
             queue=False,
         )
         run_timer.tick(

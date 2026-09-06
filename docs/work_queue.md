@@ -141,6 +141,14 @@
   and packaged-ESTO default handling now live in this source repository with
   regression tests, so future deployment refreshes do not depend on untracked
   Space-only patches.
+- 2026-09-07: Persist queued API job state and completed dashboard archives in
+  a shared, configurable job-store directory, and serialize builds with an
+  interprocess lock. Status polling can now reconnect through a different
+  server worker without falsely reporting an active job as unknown. A mounted
+  shared path can be supplied with `LEAP_DASHBOARD_JOB_STORE` when deployment
+  replicas do not share their temporary filesystem. The queued API also
+  exposes `cancel_dashboard_archive` so automation can stop a run at the next
+  safe workflow boundary instead of restarting the whole service.
 
 ## Planned
 
