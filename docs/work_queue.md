@@ -133,6 +133,14 @@
 - 2026-08-12: Show saved-dashboard, restored-run, and archive-filename times in
   Tokyo time (`JST`), including conversion of legacy browser records stored as
   UTC; retain UTC only for opaque IDs and internal telemetry.
+- 2026-09-07: Restore the canonical hosted archive and queued-API contracts
+  after a deployment refresh replaced deployment-only behavior. Dashboard ZIPs
+  again contain `archive_manifest.json`, `d/0/p/index.html`, short portable
+  paths, rewritten offline links, and canonical source provenance. The queued
+  start/status API, serialized browser/API execution, reconnectable run text,
+  and packaged-ESTO default handling now live in this source repository with
+  regression tests, so future deployment refreshes do not depend on untracked
+  Space-only patches.
 
 ## Planned
 
