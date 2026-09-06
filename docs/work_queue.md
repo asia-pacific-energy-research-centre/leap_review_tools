@@ -164,7 +164,8 @@
 - 2026-09-07: Match Version-comparison LEAP totals using the renderer's current
   `scenario:target` / `scenario:reference` metadata (and explicit scenario
   field), while retaining the legacy `tgt` / `ref` aliases. This keeps
-  comparison overlays compatible with both old bundles and current renders.
+  comparison overlays compatible with old bundles, current renders, and
+  user-defined scenario names such as `Pathway B`.
 
 ## Planned
 

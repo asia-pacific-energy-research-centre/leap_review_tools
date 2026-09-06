@@ -1,11 +1,19 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from web_app.version_comparison import apply_version_comparison
 from web_app.version_comparison import _total_index
 
 
-def test_total_index_accepts_current_renderer_scenario_tags() -> None:
+@pytest.mark.parametrize(
+    ("scenario", "tag"),
+    [("Target", "scenario:target"), ("Pathway B", "scenario:pathway b")],
+)
+def test_total_index_accepts_current_renderer_scenario_tags(
+    scenario: str, tag: str
+) -> None:
     figure = {
         "data": [
             {"name": "Transport"},
@@ -16,20 +24,20 @@ def test_total_index_accepts_current_renderer_scenario_tags() -> None:
                 "trace_meta": [
                     {
                         "source_system": "LEAP",
-                        "tag": "scenario:target",
-                        "scenario": "Target",
+                        "tag": tag,
+                        "scenario": scenario,
                     },
                     {
                         "source_system": "LEAP",
-                        "tag": "scenario:target",
-                        "scenario": "Target",
+                        "tag": tag,
+                        "scenario": scenario,
                     },
                 ]
             }
         },
     }
 
-    assert _total_index(figure, "Target") == 1
+    assert _total_index(figure, scenario) == 1
 
 
 def _figure(value: float) -> dict:

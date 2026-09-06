@@ -10,11 +10,12 @@ import numpy as np
 
 
 def _total_index(figure: dict, scenario: str) -> int | None:
-    scenario_key = "reference" if scenario.casefold() == "reference" else "target"
-    accepted_tags = {
-        "reference": {"ref", "reference", "scenario:reference"},
-        "target": {"tgt", "target", "scenario:target"},
-    }[scenario_key]
+    scenario_key = str(scenario or "").strip().casefold()
+    accepted_tags = {scenario_key, f"scenario:{scenario_key}"}
+    if scenario_key == "reference":
+        accepted_tags.add("ref")
+    elif scenario_key == "target":
+        accepted_tags.add("tgt")
     metadata = figure.get("layout", {}).get("meta", {}).get("trace_meta", [])
     candidates = [
         (index, str(trace.get("name", "")).strip())
