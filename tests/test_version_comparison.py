@@ -2,6 +2,34 @@ import json
 from pathlib import Path
 
 from web_app.version_comparison import apply_version_comparison
+from web_app.version_comparison import _total_index
+
+
+def test_total_index_accepts_current_renderer_scenario_tags() -> None:
+    figure = {
+        "data": [
+            {"name": "Transport"},
+            {"name": "LEAP Target total (Domestic TFC)"},
+        ],
+        "layout": {
+            "meta": {
+                "trace_meta": [
+                    {
+                        "source_system": "LEAP",
+                        "tag": "scenario:target",
+                        "scenario": "Target",
+                    },
+                    {
+                        "source_system": "LEAP",
+                        "tag": "scenario:target",
+                        "scenario": "Target",
+                    },
+                ]
+            }
+        },
+    }
+
+    assert _total_index(figure, "Target") == 1
 
 
 def _figure(value: float) -> dict:

@@ -161,6 +161,10 @@
   after **Add another export** appends files as after the primary upload. This
   prevents incrementally assembled comparison sets from retaining a stale
   confirmed pair or failing to expose all eligible role choices.
+- 2026-09-07: Match Version-comparison LEAP totals using the renderer's current
+  `scenario:target` / `scenario:reference` metadata (and explicit scenario
+  field), while retaining the legacy `tgt` / `ref` aliases. This keeps
+  comparison overlays compatible with both old bundles and current renders.
 
 ## Planned
 
