@@ -5530,17 +5530,50 @@ def create_app():
             fn=clear_uploaded_export,
             outputs=clear_export_outputs,
         )
-        add_export.change(
+        def finish_upload_refresh(upload_inspection: object) -> object:
+            """Apply the shared post-inspection updates for either upload control."""
+            return upload_inspection.then(
+                fn=adjust_review_year_for_vintage,
+                inputs=[esto_vintage, year],
+                outputs=year,
+            ).then(
+                fn=version_comparison_control_updates,
+                inputs=balance_export_workbook,
+                outputs=[
+                    version_comparison_controls,
+                    original_export_name,
+                    new_export_name,
+                    compare_versions,
+                    version_selection_note,
+                    confirm_version_button,
+                ],
+            ).then(
+                # Inspection can populate the review year and change which outputs
+                # are available. Quote readiness only after those values settle;
+                # parallel callbacks raced and left Run disabled until Dashboard
+                # was clicked a second time.
+                fn=update_runtime_notes,
+                inputs=[
+                    year,
+                    want_workbook,
+                    want_dashboard,
+                    balance_export_workbook,
+                    compare_versions,
+                ],
+                outputs=[
+                    workbook_runtime_note,
+                    dashboard_runtime_note,
+                    calculator_animation,
+                    run_button,
+                ],
+            )
+
+        appended_uploads = add_export.change(
             fn=append_uploaded_exports,
             inputs=[balance_export_workbook, add_export],
             outputs=[balance_export_workbook, add_export],
         )
-        balance_export_workbook.change(
-            fn=toggle_add_export,
-            inputs=balance_export_workbook,
-            outputs=add_export,
-        )
-        balance_export_workbook.change(
+        appended_inspection = appended_uploads.then(
             fn=inspect_uploaded_export,
             inputs=[balance_export_workbook, year],
             outputs=[
@@ -5551,41 +5584,26 @@ def create_app():
                 want_workbook,
                 want_dashboard,
             ],
-        ).then(
-            fn=adjust_review_year_for_vintage,
-            inputs=[esto_vintage, year],
-            outputs=year,
-        ).then(
-            fn=version_comparison_control_updates,
+        )
+        finish_upload_refresh(appended_inspection)
+        balance_export_workbook.change(
+            fn=toggle_add_export,
             inputs=balance_export_workbook,
+            outputs=add_export,
+        )
+        initial_upload_inspection = balance_export_workbook.change(
+            fn=inspect_uploaded_export,
+            inputs=[balance_export_workbook, year],
             outputs=[
-                version_comparison_controls,
-                original_export_name,
-                new_export_name,
-                compare_versions,
-                version_selection_note,
-                confirm_version_button,
-            ],
-        ).then(
-            # Inspection can populate the review year and change which outputs
-            # are available. Quote readiness only after those values settle;
-            # parallel callbacks raced and left Run disabled until Dashboard
-            # was clicked a second time.
-            fn=update_runtime_notes,
-            inputs=[
+                export_readout,
+                economy_override,
                 year,
+                clear_export_button,
                 want_workbook,
                 want_dashboard,
-                balance_export_workbook,
-                compare_versions,
-            ],
-            outputs=[
-                workbook_runtime_note,
-                dashboard_runtime_note,
-                calculator_animation,
-                run_button,
             ],
         )
+        finish_upload_refresh(initial_upload_inspection)
         esto_vintage.change(
             fn=adjust_review_year_for_vintage,
             inputs=[esto_vintage, year],

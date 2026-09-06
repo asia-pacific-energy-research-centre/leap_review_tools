@@ -155,6 +155,39 @@ def test_version_set_lists_all_candidates_and_preserves_distinct_other_role(
     assert note == ""
 
 
+def test_add_export_event_refreshes_version_comparison_controls() -> None:
+    app = app_module.create_app()
+    config = app.get_config_file()
+    component_ids = {
+        component.get("props", {}).get("elem_id"): component["id"]
+        for component in config["components"]
+        if component.get("props", {}).get("elem_id")
+    }
+    add_export_id = component_ids["add-export"]
+    controls_id = component_ids["version-comparison-controls"]
+    append_dependency = next(
+        dependency
+        for dependency in config["dependencies"]
+        if (add_export_id, "change") in map(tuple, dependency.get("targets", []))
+    )
+    reachable = {append_dependency["id"]}
+    while True:
+        descendants = {
+            dependency["id"]
+            for dependency in config["dependencies"]
+            if dependency.get("trigger_after") in reachable
+        }
+        if descendants <= reachable:
+            break
+        reachable.update(descendants)
+
+    assert any(
+        controls_id in dependency.get("outputs", [])
+        for dependency in config["dependencies"]
+        if dependency["id"] in reachable
+    )
+
+
 @dataclass
 class _FakeContext:
     output_root: Path

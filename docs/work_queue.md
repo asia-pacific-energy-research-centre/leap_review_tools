@@ -157,6 +157,10 @@
   path (with filename fallback), not DOM position, so asynchronous multi-file
   ordering and duplicate basenames cannot attach an action to the wrong
   displayed export.
+- 2026-09-07: Run the same inspection, version-candidate, and readiness refresh
+  after **Add another export** appends files as after the primary upload. This
+  prevents incrementally assembled comparison sets from retaining a stale
+  confirmed pair or failing to expose all eligible role choices.
 
 ## Planned
 
