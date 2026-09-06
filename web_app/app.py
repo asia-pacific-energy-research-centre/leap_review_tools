@@ -2900,6 +2900,10 @@ def clear_uploaded_export() -> tuple[
 # the process does, so a Space restart is still the end of a run.
 RUN_JOBS: dict[str, dict[str, object]] = {}
 RUN_JOBS_LOCK = threading.Lock()
+# The hosted Space has one CPU-bound dashboard runtime. Browser and API
+# requests share this lock so concurrent builds cannot contend for the same
+# process memory and temporary publication directories.
+RUN_EXECUTION_LOCK = threading.Lock()
 JOB_RETENTION_SECONDS = 6 * 60 * 60
 
 
@@ -2946,6 +2950,40 @@ def _raise_if_cancelled(cancellation_check: object = None) -> None:
         raise RunCancelled("Run cancelled by the user.")
 
 
+def _run_build_serialized(
+    *,
+    progress: object = None,
+    cancellation_check: object = None,
+    **kwargs: object,
+) -> tuple[str, str, object, str | None, str, object, object, str | None]:
+    """Run one heavy review build at a time across browser and API callers."""
+    while not RUN_EXECUTION_LOCK.acquire(timeout=0.5):
+        _raise_if_cancelled(cancellation_check)
+        if callable(progress):
+            progress("Waiting for the earlier dashboard run to finish.")
+    try:
+        return build_review_from_export(
+            progress=progress,
+            cancellation_check=cancellation_check,
+            **kwargs,
+        )
+    finally:
+        RUN_EXECUTION_LOCK.release()
+
+
+def _uses_packaged_esto_default(context: object, selected_path: Path | None) -> bool:
+    """Return whether the selected ESTO table is already the runtime default."""
+    if selected_path is None:
+        return True
+    packaged = context.data_asset("esto_base_table")
+    if packaged is None:
+        return False
+    try:
+        return Path(selected_path).resolve() == Path(packaged).resolve()
+    except OSError:
+        return False
+
+
 def start_run(
     want_workbook: object,
     want_dashboard: object,
@@ -2981,7 +3019,10 @@ def start_run(
         state="running",
         started=time.time(),
         finished=None,
-        message="Starting the run.",
+        message=(
+            "Run accepted. It is safe to close this tab; reopen the site in "
+            "this browser to reattach."
+        ),
         result=None,
         cancel_signal=threading.Event(),
     )
@@ -2992,15 +3033,15 @@ def start_run(
                 _set_job(job_id, message=message)
 
         try:
-            result = build_review_from_export(
-                want_workbook,
-                want_dashboard,
-                year,
-                economy_override,
-                kept,
-                None,
-                None,
-                browser_archives,
+            result = _run_build_serialized(
+                want_workbook=want_workbook,
+                want_dashboard=want_dashboard,
+                year=year,
+                economy_override=economy_override,
+                balance_export_workbook=kept,
+                economy_choice=None,
+                scenario_choice=None,
+                browser_archives=browser_archives,
                 progress=report,
                 cancellation_check=lambda: _job_cancel_requested(job_id),
                 esto_vintage_choice=esto_vintage_choice,
@@ -3965,7 +4006,15 @@ def build_review_from_export(
             year_value = ", ".join(str(value) for value in requested_years)
 
         run_root = Path(tempfile.mkdtemp(prefix="leap_balance_review_web_"))
-        local_esto = _copy_input(esto_path, run_root / "uploads") if esto_path else None
+        context = _build_context(run_root)
+        # Passing the packaged default as an explicit user upload re-derives
+        # exact ESTO rows. The portable runtime already ships those rows, so
+        # use its default implicitly and avoid duplicate work.
+        local_esto = (
+            None
+            if _uses_packaged_esto_default(context, esto_path)
+            else _copy_input(esto_path, run_root / "uploads")
+        )
         # Every economy gets its own export folder, which is the shape the
         # dashboard resolver expects; it picks the newest file per scenario.
         export_directories: dict[str, Path] = {}
@@ -3976,7 +4025,6 @@ def build_review_from_export(
                 _copy_input(upload.path, directory)
             export_directories[name] = directory
         local_export = _copy_input(workbook_upload.path, run_root / "uploads")
-        context = _build_context(run_root)
         _raise_if_cancelled(cancellation_check)
 
         result = None
@@ -4353,6 +4401,102 @@ def build_review_from_export(
             browser_archives if isinstance(browser_archives, list) else [],
             None,
         )
+
+
+def generate_dashboard_archive_api(
+    balance_export_workbook: object,
+    esto_vintage_choice: object = None,
+) -> tuple[str, dict[str, object]]:
+    """Generate one downloadable dashboard archive for API clients."""
+    result = _run_build_serialized(
+        want_workbook=False,
+        want_dashboard=True,
+        year="",
+        economy_override="",
+        balance_export_workbook=balance_export_workbook,
+        economy_choice=None,
+        scenario_choice=None,
+        browser_archives=[],
+        esto_vintage_choice=esto_vintage_choice,
+        compare_versions=False,
+        original_export_name=None,
+        new_export_name=None,
+    )
+    summary_text = str(result[0] or "").strip()
+    archive_path = str(result[7] or "").strip()
+    if not summary_text or not archive_path or not Path(archive_path).is_file():
+        status_text = html.unescape(re.sub(r"<[^>]+>", " ", str(result[1] or "")))
+        status_text = " ".join(status_text.split())
+        raise RuntimeError(status_text or "Dashboard generation failed.")
+    summary = json.loads(summary_text)
+    summary["api_contract"] = "generate_dashboard_archive/v1"
+    return archive_path, summary
+
+
+def start_dashboard_archive_api(
+    balance_export_workbook: object,
+    esto_vintage_choice: object = None,
+) -> dict[str, object]:
+    """Start a durable background dashboard job and return its polling key."""
+    job_id, _ = start_run(
+        False,
+        True,
+        "",
+        "",
+        balance_export_workbook,
+        [],
+        True,
+        esto_vintage_choice,
+    )
+    if not job_id:
+        raise RuntimeError("Dashboard generation did not start.")
+    return {
+        "api_contract": "dashboard_archive_job/v1",
+        "job_id": job_id,
+        "state": "running",
+    }
+
+
+def dashboard_archive_status_api(
+    job_id: object,
+) -> tuple[dict[str, object], str | None]:
+    """Return one short-lived status response for a background API job."""
+    key = str(job_id or "").strip()
+    job = _job_snapshot(key)
+    if job is None:
+        return (
+            {
+                "api_contract": "dashboard_archive_job/v1",
+                "job_id": key,
+                "state": "unknown",
+                "message": "This job is not available on the current server instance.",
+            },
+            None,
+        )
+    state = str(job.get("state") or "unknown")
+    status: dict[str, object] = {
+        "api_contract": "dashboard_archive_job/v1",
+        "job_id": key,
+        "state": state,
+        "message": str(job.get("message") or ""),
+        "elapsed_seconds": round(
+            time.time() - float(job.get("started") or time.time()), 1
+        ),
+    }
+    if state != "done":
+        return status, None
+    result = job.get("result") or ()
+    if len(result) != 8:
+        status.update(state="failed", message="The run finished without outputs.")
+        return status, None
+    archive_path = str(result[7] or "").strip()
+    if not archive_path or not Path(archive_path).is_file():
+        status.update(state="failed", message="The run produced no dashboard archive.")
+        return status, None
+    summary_text = str(result[0] or "").strip()
+    if summary_text:
+        status["summary"] = json.loads(summary_text)
+    return status, archive_path
 
 
 def _dropdown_update(choices: list[object], value: object) -> object:
@@ -4934,6 +5078,28 @@ def create_app():
         )
         upload_is_live = gr.State(False)
         run_timer = gr.Timer(3, active=False)
+        # Stable machine-facing contract for batch dashboard generation. These
+        # components stay out of the visual interface but give Gradio clients
+        # typed upload, status, and download endpoints.
+        api_balance_exports = gr.File(
+            file_types=[".xlsx", ".xlsm"],
+            type="filepath",
+            file_count="multiple",
+            visible=False,
+        )
+        api_esto_vintage = gr.Dropdown(
+            choices=esto_vintage_options,
+            value=_default_esto_vintage(esto_vintage_options),
+            visible=False,
+        )
+        api_dashboard_download = gr.File(visible=False)
+        api_run_summary = gr.JSON(visible=False)
+        api_generate_dashboard = gr.Button(visible=False)
+        api_job_id = gr.Textbox(visible=False)
+        api_job_status = gr.JSON(visible=False)
+        api_job_download = gr.File(visible=False)
+        api_start_dashboard = gr.Button(visible=False)
+        api_poll_dashboard = gr.Button(visible=False)
         # A Gradio timer ticks in the browser, and a browser throttles or
         # suspends timers in a tab that is not being looked at. So a run that
         # finished while the user was in another window stays "running" on
@@ -5239,6 +5405,29 @@ def create_app():
             fn=activate_run_timer,
             inputs=active_job,
             outputs=run_timer,
+        )
+        api_generate_dashboard.click(
+            fn=generate_dashboard_archive_api,
+            inputs=[api_balance_exports, api_esto_vintage],
+            outputs=[api_dashboard_download, api_run_summary],
+            api_name="generate_dashboard_archive",
+            queue=True,
+            concurrency_id="dashboard-generation",
+            concurrency_limit=1,
+        )
+        api_start_dashboard.click(
+            fn=start_dashboard_archive_api,
+            inputs=[api_balance_exports, api_esto_vintage],
+            outputs=api_job_status,
+            api_name="start_dashboard_archive",
+            queue=False,
+        )
+        api_poll_dashboard.click(
+            fn=dashboard_archive_status_api,
+            inputs=api_job_id,
+            outputs=[api_job_status, api_job_download],
+            api_name="dashboard_archive_status",
+            queue=False,
         )
         run_timer.tick(
             fn=poll_run,

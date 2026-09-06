@@ -140,6 +140,52 @@ def test_start_run_does_not_create_job_for_stale_upload() -> None:
     assert set(app.RUN_JOBS) == jobs_before
 
 
+def test_background_job_says_the_browser_can_be_closed(monkeypatch, tmp_path) -> None:
+    """Long work must remain discoverable after closing the browser tab."""
+    upload = tmp_path / "export.xlsx"
+    upload.write_bytes(b"test")
+    worker_started = threading.Event()
+    release_worker = threading.Event()
+
+    def fake_build(*_values, **_options):
+        worker_started.set()
+        release_worker.wait(timeout=2)
+        return ("", "", [], None, "", None, [], None)
+
+    monkeypatch.setattr(app, "build_review_from_export", fake_build)
+    job_id, _ = app.start_run(False, True, "2022", "", [str(upload)], [])
+    try:
+        assert worker_started.wait(timeout=1)
+        snapshot = app._job_snapshot(job_id)
+        assert snapshot is not None
+        assert "safe to close this tab" in str(snapshot["message"]).lower()
+        assert "this browser" in str(snapshot["message"]).lower()
+    finally:
+        release_worker.set()
+        deadline = time.time() + 2
+        while time.time() < deadline:
+            snapshot = app._job_snapshot(job_id)
+            if snapshot and snapshot.get("state") == "done":
+                break
+            time.sleep(0.01)
+        with app.RUN_JOBS_LOCK:
+            app.RUN_JOBS.pop(job_id, None)
+
+
+def test_packaged_default_esto_does_not_become_an_explicit_override(tmp_path) -> None:
+    """The hosted default reuses the shipped exact ESTO-row asset."""
+    packaged = tmp_path / "00APEC_2024_low_with_subtotals.csv"
+    packaged.write_text("economy,flows,products\n", encoding="utf-8")
+
+    class Context:
+        def data_asset(self, role: str):
+            assert role == "esto_base_table"
+            return packaged
+
+    assert app._uses_packaged_esto_default(Context(), packaged)
+    assert not app._uses_packaged_esto_default(Context(), tmp_path / "00APEC_2025.csv")
+
+
 def test_cancel_run_sets_signal_and_cancel_requested_state() -> None:
     """The Cancel action is idempotent and visible to the background worker."""
     job_id = "cancel-control-test"
