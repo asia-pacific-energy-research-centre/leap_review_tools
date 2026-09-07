@@ -166,6 +166,13 @@
   field), while retaining the legacy `tgt` / `ref` aliases. This keeps
   comparison overlays compatible with old bundles, current renders, and
   user-defined scenario names such as `Pathway B`.
+- 2026-09-07: Keep Version 2 as the presentation authority in mixed-detail
+  comparisons: every recognised Version 2 LEAP aggregate now carries the
+  explicit `Version 2 (new)` suffix even without a Version 1 counterpart.
+  When the Version 1 page records active placeholder coverage, an unmatched
+  detailed chart receives a comparison-only notice rather than silently
+  implying a zero. Ordinary single-version bundles are not passed through this
+  postprocessor.
 
 ## Planned
 

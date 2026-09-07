@@ -102,7 +102,7 @@ def test_version_comparison_refuses_a_silent_no_op(tmp_path: Path) -> None:
 
     import pytest
 
-    with pytest.raises(ValueError, match="No comparable Version 1 / Version 2"):
+    with pytest.raises(ValueError, match="No Version 2 LEAP total traces"):
         apply_version_comparison(
             original, new, scenario="Target", green_percent=1, yellow_percent=5
         )
@@ -199,3 +199,81 @@ def test_version_comparison_pairs_aggregate_labels_without_the_word_total(
         "Natural gas",
         "Coal",
     ]
+
+
+def test_version_comparison_labels_unmatched_version_2_total_and_records_placeholder_notice(
+    tmp_path: Path,
+) -> None:
+    original, new = tmp_path / "original", tmp_path / "new"
+    _dashboard(original, 100)
+    _dashboard(new, 103)
+    original_page = original / "dashboards" / "supply.html"
+    original_page.write_text(
+        '<html><body><div class="visible-note">LEAP placeholder in use: '
+        "combined coverage</div></body></html>"
+    )
+    (new / "dashboards" / "supply.html").write_text(
+        '<html><body><figure class="chart-card">'
+        '<div data-chart-key="chart-a" class="lazy-chart-plot"></div>'
+        '</figure><figure class="chart-card">'
+        '<div data-chart-key="detail-only-in-version-2" '
+        'class="lazy-chart-plot"></div></figure></body></html>'
+    )
+    old_charts = {
+        "charts": {
+            "chart-a": _figure(100),
+            "detail-only-in-version-2": {
+                "data": [
+                    {"name": "Natural gas", "x": [2022, 2023], "y": [30, 31]},
+                    {"name": "Coal", "x": [2022, 2023], "y": [20, 19]},
+                ],
+                "layout": {
+                    "meta": {
+                        "trace_meta": [
+                            {"source_system": "LEAP", "tag": "tgt"},
+                            {"source_system": "LEAP", "tag": "tgt"},
+                        ]
+                    }
+                },
+            },
+        }
+    }
+    new_charts = {
+        "charts": {
+            "chart-a": _figure(103),
+            "detail-only-in-version-2": _figure(103),
+        }
+    }
+    (original / "chart_bundles" / "supply__charts.json").write_text(json.dumps(old_charts))
+    (new / "chart_bundles" / "supply__charts.json").write_text(json.dumps(new_charts))
+    original_before = (original / "chart_bundles" / "supply__charts.json").read_bytes()
+
+    apply_version_comparison(
+        original, new, scenario="Target", green_percent=1, yellow_percent=5
+    )
+
+    charts = json.loads((new / "chart_bundles" / "supply__charts.json").read_text())["charts"]
+    assert [trace["name"] for trace in charts["chart-a"]["data"]] == [
+        "LEAP Target Total — Version 1 (original)",
+        "LEAP Target Total — Version 2 (new)",
+    ]
+    assert [trace["name"] for trace in charts["detail-only-in-version-2"]["data"]] == [
+        "LEAP Target Total — Version 2 (new)"
+    ]
+    page = (new / "dashboards" / "supply.html").read_text()
+    assert page.count('data-comparison-chart-notice="detail-only-in-version-2"') == 1
+    assert "Version 1 uses placeholder/less-detailed LEAP coverage" in page
+    assert (original / "chart_bundles" / "supply__charts.json").read_bytes() == original_before
+
+
+def test_single_version_dashboard_is_unchanged_until_comparison_is_requested(
+    tmp_path: Path,
+) -> None:
+    dashboard = tmp_path / "single-version"
+    _dashboard(dashboard, 103)
+
+    bundle_before = (dashboard / "chart_bundles" / "supply.json").read_bytes()
+    page_before = (dashboard / "dashboards" / "supply.html").read_bytes()
+
+    assert (dashboard / "chart_bundles" / "supply.json").read_bytes() == bundle_before
+    assert (dashboard / "dashboards" / "supply.html").read_bytes() == page_before
